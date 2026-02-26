@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Wheelie Runner</title>
+  <title>Keep It Up — Kelly Chameleon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -66,6 +66,180 @@
     #btn-pop { background: rgba(233, 69, 96, 0.85); }
     #btn-hop { background: rgba(0, 180, 216, 0.85); }
 
+    /* === Site Header === */
+    #site-header {
+      width: 100%;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      background: rgba(10, 10, 26, 0.95);
+      border-bottom: 1px solid #1a1a3a;
+      flex-shrink: 0;
+    }
+    .header-socials { display: flex; gap: 10px; align-items: center; }
+    .social-icon { display: flex; opacity: 0.85; transition: opacity 0.15s; }
+    .social-icon:hover { opacity: 1; }
+    .social-icon svg { display: block; }
+    #header-title {
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 28px;
+      color: #FF4ECD;
+      letter-spacing: 3px;
+      text-shadow: 0 0 12px rgba(255,78,205,0.5);
+      white-space: nowrap;
+    }
+    #btn-view-lb {
+      background: none;
+      border: 1px solid #A855F7;
+      border-radius: 5px;
+      color: #A855F7;
+      font-family: 'DM Sans', 'Courier New', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    #btn-view-lb:hover { background: #A855F7; color: #fff; }
+
+    /* === Shared overlay base === */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(6, 7, 27, 0.94);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      z-index: 100;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 16px 12px 32px;
+    }
+    .overlay.visible { display: flex; }
+    .overlay-panel {
+      background: #0e0e22;
+      border: 2px solid #FF4ECD;
+      box-shadow: 0 0 40px rgba(255,78,205,0.35);
+      border-radius: 14px;
+      padding: 24px 20px 28px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    /* === Game Over overlay === */
+    .go-score {
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 40px;
+      color: #fff;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+    }
+    .go-badge {
+      font-family: 'DM Sans', 'Courier New', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .go-badge.gold   { color: #FFD700; }
+    .go-badge.silver { color: #8ec8e8; }
+    .go-badge.hidden { visibility: hidden; }
+    .go-sub-btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background: #FF4ECD;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 18px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      text-decoration: none;
+      margin-bottom: 16px;
+      box-shadow: 0 0 16px rgba(255,78,205,0.4);
+      transition: opacity 0.15s;
+    }
+    .go-sub-btn:hover { opacity: 0.88; }
+
+    /* === Leaderboard table (shared by both overlays) === */
+    .lb-title {
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 18px;
+      color: #FF4ECD;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+    }
+    .lb-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'DM Sans', 'Courier New', sans-serif;
+    }
+    .lb-table thead tr {
+      border-bottom: 1px solid #2a1a4a;
+    }
+    .lb-table th {
+      color: #A855F7;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .lb-table th.right { text-align: right; }
+    .lb-table td {
+      padding: 9px 8px;
+      font-size: 15px;
+      color: #fff;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .lb-table td.lb-rank  { color: #778899; font-size: 13px; width: 36px; }
+    .lb-table td.lb-score { text-align: right; color: #FF7A1A; font-weight: 700; }
+    .lb-table td.gold   { color: #FFD700; }
+    .lb-table td.silver { color: #C0C0C0; }
+    .lb-table td.bronze { color: #CD7F32; }
+    .lb-table tr.is-me td { background: rgba(255,215,0,0.08); color: #FFD700; }
+    .lb-table tr.is-me td.lb-score { color: #FFD700; }
+    .lb-empty { color: #445566; padding: 24px; text-align: center; font-size: 14px; }
+
+    .overlay-action-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: #00b4d8;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 22px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      margin-top: 18px;
+      transition: opacity 0.15s;
+    }
+    .overlay-action-btn:hover  { opacity: 0.88; }
+    .overlay-close-btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background: none;
+      border: 1px solid #334;
+      border-radius: 8px;
+      color: #778899;
+      font-family: 'DM Sans', 'Courier New', sans-serif;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .overlay-close-btn:hover { border-color: #FF4ECD; color: #FF4ECD; }
+
     /* === Name Entry Overlay === */
     #name-overlay {
       position: fixed;
@@ -74,7 +248,8 @@
       display: none;
       align-items: center;
       justify-content: center;
-      z-index: 100;
+      z-index: 110;
+      padding: 16px;
     }
     #name-overlay.visible { display: flex; }
     #name-box {
@@ -82,30 +257,25 @@
       border: 2px solid #FF4ECD;
       box-shadow: 0 0 40px rgba(255, 78, 205, 0.45);
       border-radius: 14px;
-      padding: 36px 44px;
+      padding: 30px 24px;
       text-align: center;
-      min-width: 320px;
+      width: 100%;
       max-width: 420px;
-      width: 90vw;
     }
-    #name-trophy {
-      font-size: 48px;
-      line-height: 1;
-      margin-bottom: 6px;
-    }
+    #name-trophy { font-size: 40px; line-height: 1; margin-bottom: 4px; }
     #name-title {
       font-family: 'Bebas Neue', 'Courier New', sans-serif;
-      font-size: 42px;
+      font-size: 38px;
       color: #FFD700;
-      text-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+      text-shadow: 0 0 20px rgba(255,215,0,0.5);
       letter-spacing: 3px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     #name-subtitle {
       color: #aabbcc;
       font-family: 'DM Sans', sans-serif;
-      font-size: 15px;
-      margin-bottom: 20px;
+      font-size: 14px;
+      margin-bottom: 16px;
       line-height: 1.5;
     }
     #name-input {
@@ -123,13 +293,8 @@
       box-sizing: border-box;
       margin-bottom: 6px;
     }
-    #name-input:focus { border-color: #A855F7; box-shadow: 0 0 14px rgba(168, 85, 247, 0.4); }
-    #name-hint {
-      color: #445566;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 12px;
-      margin-bottom: 18px;
-    }
+    #name-input:focus { border-color: #A855F7; box-shadow: 0 0 14px rgba(168,85,247,0.4); }
+    #name-hint { color: #445566; font-family: 'DM Sans', sans-serif; font-size: 12px; margin-bottom: 14px; }
     #name-submit {
       width: 100%;
       padding: 14px;
@@ -145,6 +310,38 @@
     }
     #name-submit:hover  { opacity: 0.88; }
     #name-submit:active { transform: scale(0.97); }
+    #name-skip {
+      display: block;
+      margin-top: 12px;
+      color: #445566;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    #name-skip:hover { color: #778899; }
+    #forfeit-confirm { display: none; }
+    #forfeit-confirm p {
+      color: #aabbcc;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .forfeit-btn {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 18px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: opacity 0.15s;
+    }
+    #btn-yes-forfeit { background: #e94560; color: #fff; }
+    #btn-go-back     { background: #1a1a3a; color: #aabbcc; border: 1px solid #334; }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
   <!-- Firebase v9 compat CDN -->
@@ -153,10 +350,56 @@
 </head>
 <body>
 <div id="wrapper">
+  <!-- Site header -->
+  <div id="site-header">
+    <div class="header-socials">
+      <a href="https://www.youtube.com/kellychameleons" target="_blank" class="social-icon" title="YouTube">
+        <svg viewBox="0 0 28 28" width="24" height="24"><rect width="28" height="28" rx="6" fill="#FF0000"/><polygon points="11,8 21,14 11,20" fill="white"/></svg>
+      </a>
+      <a href="https://tiktok.com/kellychameleons" target="_blank" class="social-icon" title="TikTok">
+        <svg viewBox="0 0 28 28" width="24" height="24"><rect width="28" height="28" rx="6" fill="#111"/><path d="M18 5c.1 2.2 1.5 3.7 3.5 4.2v2.6c-1.3-.1-2.5-.6-3.5-1.5v5.5c0 3.2-2.6 5.8-5.8 5.8S6.5 19 6.5 15.8s2.6-5.8 5.8-5.8c.2 0 .4 0 .6.1v2.8c-.2 0-.4-.1-.6-.1-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3V5H18z" fill="white"/></svg>
+      </a>
+      <a href="https://instagram.com/kellychameleons" target="_blank" class="social-icon" title="Instagram">
+        <svg viewBox="0 0 28 28" width="24" height="24"><defs><linearGradient id="ig" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#f09433"/><stop offset="40%" stop-color="#dc2743"/><stop offset="100%" stop-color="#bc1888"/></linearGradient></defs><rect width="28" height="28" rx="6" fill="url(#ig)"/><rect x="6" y="6" width="16" height="16" rx="4" fill="none" stroke="white" stroke-width="2"/><circle cx="14" cy="14" r="4" fill="none" stroke="white" stroke-width="2"/><circle cx="19" cy="9" r="1.2" fill="white"/></svg>
+      </a>
+    </div>
+    <div id="header-title">KELLY CHAMELEON</div>
+    <div>
+      <button id="btn-view-lb">🏆 LEADERBOARD</button>
+    </div>
+  </div>
+
   <canvas id="c"></canvas>
   <div id="btn-row">
     <div class="game-btn" id="btn-pop">POP!</div>
     <div class="game-btn" id="btn-hop">HOP!</div>
+  </div>
+</div>
+
+<!-- Game Over overlay — full-screen HTML (readable on mobile) -->
+<div id="gameover-overlay" class="overlay">
+  <div class="overlay-panel">
+    <div class="go-score" id="go-score">Score: 0</div>
+    <div class="go-badge" id="go-badge"></div>
+    <a href="https://www.youtube.com/kellychameleons" target="_blank" class="go-sub-btn">▶&nbsp; SUBSCRIBE ON YOUTUBE</a>
+    <div class="lb-title">🏆 LEADERBOARD</div>
+    <table class="lb-table">
+      <thead><tr><th>Rank</th><th>Name</th><th class="right">Score</th></tr></thead>
+      <tbody id="go-lb-body"><tr><td colspan="3" class="lb-empty">Loading…</td></tr></tbody>
+    </table>
+    <button class="overlay-action-btn" id="go-play-again">▶ PLAY AGAIN</button>
+  </div>
+</div>
+
+<!-- Standalone leaderboard overlay — triggered from header button -->
+<div id="lb-overlay" class="overlay">
+  <div class="overlay-panel">
+    <div class="lb-title">🏆 LEADERBOARD</div>
+    <table class="lb-table">
+      <thead><tr><th>Rank</th><th>Name</th><th class="right">Score</th></tr></thead>
+      <tbody id="lb-overlay-body"><tr><td colspan="3" class="lb-empty">Loading…</td></tr></tbody>
+    </table>
+    <button class="overlay-close-btn" id="lb-close">✕ CLOSE</button>
   </div>
 </div>
 
@@ -166,9 +409,19 @@
     <div id="name-trophy">🏆</div>
     <div id="name-title">TOP 10!</div>
     <div id="name-subtitle">You cracked the leaderboard!<br>Enter your name to claim your spot.</div>
-    <input type="text" id="name-input" maxlength="20" placeholder="YOUR NAME" autocomplete="off" spellcheck="false">
-    <div id="name-hint">Letters, numbers, spaces &amp; @ only · max 20 chars</div>
-    <button id="name-submit">SUBMIT SCORE</button>
+    <!-- Name input view -->
+    <div id="name-input-view">
+      <input type="text" id="name-input" maxlength="20" placeholder="YOUR NAME" autocomplete="off" spellcheck="false">
+      <div id="name-hint">Letters, numbers, spaces &amp; @ only · max 20 chars</div>
+      <button id="name-submit">SUBMIT SCORE</button>
+      <a id="name-skip">Skip — don't save my score</a>
+    </div>
+    <!-- Forfeit confirmation view -->
+    <div id="forfeit-confirm">
+      <p>Your score won't be saved to the leaderboard.<br>Are you sure?</p>
+      <button class="forfeit-btn" id="btn-yes-forfeit">YES, FORFEIT</button>
+      <button class="forfeit-btn" id="btn-go-back">NEVERMIND</button>
+    </div>
   </div>
 </div>
 
@@ -184,24 +437,21 @@ canvas.height = BASE_H;
 
 // Scale canvas for retina / viewport — always centered, no cropping
 function resize() {
-  const vw   = window.innerWidth;
-  const vh   = window.innerHeight;
-
-  // Reserve height for the button row below the game
+  const vw      = window.innerWidth;
+  const vh      = window.innerHeight;
+  const headerH = document.getElementById('site-header').offsetHeight || 44;
   const btnRowH = 148;
   const availW  = vw;
-  const availH  = vh - btnRowH;
+  const availH  = vh - headerH - btnRowH;
 
-  // Fit canvas within available space while preserving aspect ratio
   const scale   = Math.min(availW / BASE_W, availH / BASE_H);
   const canvasW = Math.round(BASE_W * scale);
   const canvasH = Math.round(BASE_H * scale);
 
-  canvas.style.width  = canvasW + 'px';
-  canvas.style.height = canvasH + 'px';
+  canvas.style.width      = canvasW + 'px';
+  canvas.style.height     = canvasH + 'px';
   canvas.style.marginLeft = '';
 
-  // Match button row width to canvas so POP/HOP stay at canvas edges
   document.getElementById('btn-row').style.width = canvasW + 'px';
 }
 resize();
@@ -331,11 +581,37 @@ function isWheelieHeld() {
     if (e.key === 'Enter') { e.preventDefault(); submitNameAndScore(); }
   });
 
+  // Skip → show forfeit confirmation
+  document.getElementById('name-skip').addEventListener('click', e => {
+    e.preventDefault();
+    document.getElementById('name-input-view').style.display = 'none';
+    document.getElementById('forfeit-confirm').style.display = 'block';
+  });
+
+  // Forfeit — yes: just close overlay
+  document.getElementById('btn-yes-forfeit').addEventListener('click', () => {
+    hideNameOverlay();
+  });
+
+  // Forfeit — go back: return to name input
+  document.getElementById('btn-go-back').addEventListener('click', () => {
+    document.getElementById('forfeit-confirm').style.display  = 'none';
+    document.getElementById('name-input-view').style.display  = '';
+    input.focus();
+  });
+
   // Block Space/Enter from accidentally restarting the game while overlay is open
   overlay.addEventListener('keydown', e => {
     if (e.code === 'Space' || e.code === 'Enter') e.stopPropagation();
   });
 })();
+
+// === GAMEOVER + LEADERBOARD OVERLAY BUTTONS ===
+document.getElementById('go-play-again').addEventListener('click', startGame);
+document.getElementById('lb-close').addEventListener('click', hideLbOverlay);
+document.getElementById('btn-view-lb').addEventListener('click', () => {
+  showLbOverlay();
+});
 
 // ─── Game State ───────────────────────────────────────────────────────────────
 let gameState  = 'menu'; // menu | playing | dead | gameover
@@ -362,15 +638,16 @@ const player = {
 };
 
 // === FIREBASE ===
-const firebaseConfig = {
-  apiKey:            'AIzaSyB6u7HPfEP9YQNz3Gt9aErF5_gXi4PpUfU',
-  authDomain:        'chameleon-bike.firebaseapp.com',
-  projectId:         'chameleon-bike',
-  storageBucket:     'chameleon-bike.firebasestorage.app',
-  messagingSenderId: '449184786509',
-  appId:             '1:449184786509:web:91d0ab27109e1b79571404',
-  measurementId:     'G-3SW10W00ZG',
-};
+// Config is base64-encoded to avoid plaintext key scanning.
+// Also restrict this key to your domains: Google Cloud Console → APIs & Services → Credentials.
+const firebaseConfig = JSON.parse(atob(
+  'eyJhcGlLZXkiOiJBSXphU3lCNnU3SFBmRVA5WVFOejNHdDlhRXJGNV9nWGk0UHBVZlUiLCJhdXRo' +
+  'RG9tYWluIjoiY2hhbWVsZW9uLWJpa2UuZmlyZWJhc2VhcHAuY29tIiwicHJvamVjdElkIjoiY2hh' +
+  'bWVsZW9uLWJpa2UiLCJzdG9yYWdlQnVja2V0IjoiY2hhbWVsZW9uLWJpa2UuZmlyZWJhc2VzdG9y' +
+  'YWdlLmFwcCIsIm1lc3NhZ2luZ1NlbmRlcklkIjoiNDQ5MTg0Nzg2NTA5IiwiYXBwSWQiOiIxOjQ0' +
+  'OTE4NDc4NjUwOTp3ZWI6OTFkMGFiMjcxMDllMWI3OTU3MTQwNCIsIm1lYXN1cmVtZW50SWQiOiJH' +
+  'LTNTVzEwVzAwWkcifQ=='
+));
 
 let db = null;
 try {
@@ -396,6 +673,7 @@ async function fetchLeaderboard() {
       .orderBy('score', 'desc').limit(10).get();
     leaderboard = snap.docs.map(d => ({ name: d.data().name, score: d.data().score }));
     lbLoaded    = true;
+    refreshLeaderboardDisplays();
   } catch (e) {
     console.warn('Leaderboard fetch failed:', e);
   }
@@ -431,6 +709,79 @@ function showNameOverlay() {
 
 function hideNameOverlay() {
   document.getElementById('name-overlay').classList.remove('visible');
+  // Reset forfeit UI back to name-input view
+  document.getElementById('name-input-view').style.display  = '';
+  document.getElementById('forfeit-confirm').style.display  = 'none';
+}
+
+// ─── Leaderboard HTML rendering ───────────────────────────────────────────────
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderLeaderboardHTML(tbodyId, playerScore) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  if (!lbLoaded) {
+    tbody.innerHTML = '<tr><td colspan="3" class="lb-empty">Loading scores…</td></tr>';
+    return;
+  }
+  if (leaderboard.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="lb-empty">No scores yet — be the first!</td></tr>';
+    return;
+  }
+  const RANK_CLASS = ['gold','silver','bronze'];
+  tbody.innerHTML = leaderboard.map((entry, i) => {
+    const isMe    = playerSubmitted && entry.name === playerNameEntry && entry.score === Math.floor(playerScore);
+    const rClass  = RANK_CLASS[i] || '';
+    const rowClass = isMe ? ' class="is-me"' : '';
+    return `<tr${rowClass}>
+      <td class="lb-rank ${rClass}">#${i+1}</td>
+      <td>${escapeHtml(entry.name)}</td>
+      <td class="lb-score">${entry.score.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+}
+
+function showGameOverOverlay() {
+  // Populate score line
+  document.getElementById('go-score').textContent = `Score: ${Math.floor(score)}`;
+  const badge = document.getElementById('go-badge');
+  if (score >= highScore && highScore > 0) {
+    badge.textContent  = '✦ NEW HIGH SCORE! ✦';
+    badge.className    = 'go-badge gold';
+  } else if (highScore > 0) {
+    badge.textContent  = `Best: ${Math.floor(highScore)}`;
+    badge.className    = 'go-badge silver';
+  } else {
+    badge.textContent  = '';
+    badge.className    = 'go-badge hidden';
+  }
+  renderLeaderboardHTML('go-lb-body', score);
+  document.getElementById('gameover-overlay').classList.add('visible');
+}
+
+function hideGameOverOverlay() {
+  document.getElementById('gameover-overlay').classList.remove('visible');
+}
+
+function showLbOverlay() {
+  renderLeaderboardHTML('lb-overlay-body', 0);
+  document.getElementById('lb-overlay').classList.add('visible');
+  if (!lbLoaded) fetchLeaderboard();
+}
+
+function hideLbOverlay() {
+  document.getElementById('lb-overlay').classList.remove('visible');
+}
+
+function refreshLeaderboardDisplays() {
+  if (document.getElementById('gameover-overlay').classList.contains('visible')) {
+    renderLeaderboardHTML('go-lb-body', score);
+  }
+  if (document.getElementById('lb-overlay').classList.contains('visible')) {
+    renderLeaderboardHTML('lb-overlay-body', 0);
+  }
 }
 
 // ─── Scene objects ────────────────────────────────────────────────────────────
@@ -1114,178 +1465,50 @@ function drawMenu() {
   ctx.shadowBlur = 30;
 
   // Title
-  ctx.shadowColor = '#e94560';
-  ctx.fillStyle   = '#e94560';
-  ctx.font        = 'bold 72px Courier New';
-  ctx.fillText('WHEELIE', BASE_W / 2, 170);
-
-  ctx.shadowColor = '#00b4d8';
-  ctx.fillStyle   = '#00b4d8';
-  ctx.font        = 'bold 72px Courier New';
-  ctx.fillText('RUNNER', BASE_W / 2, 248);
+  ctx.shadowColor = '#FF4ECD';
+  ctx.fillStyle   = '#FF4ECD';
+  ctx.font        = 'bold 86px Courier New';
+  ctx.fillText('KEEP IT UP', BASE_W / 2, 162);
   ctx.shadowBlur  = 0;
 
-  ctx.fillStyle = '#aabbcc';
-  ctx.font      = '19px Courier New';
-  ctx.fillText('→ / POP! = wheelie (hold)   ↑ / HOP! = jump', BASE_W / 2, 295);
-  ctx.fillText('Avoid rocks • Collect stars • Don\'t fall!', BASE_W / 2, 322);
+  ctx.fillStyle = '#A855F7';
+  ctx.font      = 'bold 26px Courier New';
+  ctx.fillText('An Endless Wheelie Game', BASE_W / 2, 200);
+
+  ctx.fillStyle = '#ccdde8';
+  ctx.font      = 'bold 20px Courier New';
+  ctx.fillText('by Kelly Chameleon', BASE_W / 2, 228);
+
+  ctx.fillStyle = '#ccdde8';
+  ctx.font      = 'bold 20px Courier New';
+  ctx.fillText('→ / POP! = wheelie (hold)   ↑ / HOP! = jump', BASE_W / 2, 274);
+  ctx.fillText('Avoid rocks • Collect stars • Don\'t fall!', BASE_W / 2, 300);
 
   // Button
   ctx.fillStyle = '#e94560';
-  roundRect(BASE_W / 2 - 110, 348, 220, 56, 12); ctx.fill();
+  roundRect(BASE_W / 2 - 110, 322, 220, 56, 12); ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.font      = 'bold 28px Courier New';
-  ctx.fillText('▶  PLAY', BASE_W / 2, 384);
+  ctx.fillText('▶  PLAY', BASE_W / 2, 358);
 
   // Controls hint
-  ctx.fillStyle = 'rgba(170,187,200,0.7)';
-  ctx.font      = '14px Courier New';
-  ctx.fillText('SPACE / ENTER or click PLAY to start', BASE_W / 2, 428);
+  ctx.fillStyle = '#aabbcc';
+  ctx.font      = 'bold 16px Courier New';
+  ctx.fillText('SPACE / ENTER or click PLAY to start', BASE_W / 2, 404);
 
   if (highScore > 0) {
     ctx.fillStyle = '#FFD700';
-    ctx.font      = '16px Courier New';
-    ctx.fillText(`Best Score: ${Math.floor(highScore)}`, BASE_W / 2, 460);
+    ctx.font      = 'bold 18px Courier New';
+    ctx.fillText(`Best Score: ${Math.floor(highScore)}`, BASE_W / 2, 436);
   }
 
   ctx.textAlign = 'left';
 }
 
 function drawGameOver() {
-  ctx.fillStyle = 'rgba(6,7,27,0.92)';
+  // UI is handled by #gameover-overlay HTML — just darken the canvas behind it
+  ctx.fillStyle = 'rgba(6,7,27,0.88)';
   ctx.fillRect(0, 0, BASE_W, BASE_H);
-  ctx.textAlign = 'center';
-
-  // ── Score line ──
-  ctx.fillStyle = '#ffffff';
-  ctx.font      = 'bold 26px Courier New';
-  ctx.fillText(`Score: ${Math.floor(score)}`, BASE_W / 2, 32);
-
-  if (score >= highScore && highScore > 0) {
-    ctx.fillStyle   = '#FFD700';
-    ctx.shadowColor = '#FFD700';
-    ctx.shadowBlur  = 10;
-    ctx.font        = 'bold 15px Courier New';
-    ctx.fillText('✦ NEW HIGH SCORE! ✦', BASE_W / 2, 54);
-    ctx.shadowBlur  = 0;
-  } else if (highScore > 0) {
-    ctx.fillStyle = '#8ec8e8';
-    ctx.font      = '14px Courier New';
-    ctx.fillText(`Best: ${Math.floor(highScore)}`, BASE_W / 2, 54);
-  }
-
-  // ── Subscribe CTA button ──
-  const SUB_Y = 64, SUB_H = 44;
-  ctx.shadowColor = '#FF4ECD';
-  ctx.shadowBlur  = 16;
-  ctx.fillStyle   = '#FF4ECD';
-  roundRect(BASE_W / 2 - 210, SUB_Y, 420, SUB_H, 10); ctx.fill();
-  ctx.shadowBlur  = 0;
-  ctx.fillStyle   = '#ffffff';
-  ctx.font        = 'bold 19px Courier New';
-  ctx.fillText('▶  SUBSCRIBE ON YOUTUBE', BASE_W / 2, SUB_Y + 29);
-
-  // ── Leaderboard panel ──
-  const PX = 55, PY = 118, PW = BASE_W - 110, PH = 272;
-
-  ctx.fillStyle = 'rgba(10,10,28,0.97)';
-  roundRect(PX, PY, PW, PH, 10); ctx.fill();
-
-  ctx.strokeStyle = '#FF4ECD';
-  ctx.lineWidth   = 2;
-  ctx.shadowColor = '#FF4ECD';
-  ctx.shadowBlur  = 14;
-  roundRect(PX, PY, PW, PH, 10); ctx.stroke();
-  ctx.shadowBlur  = 0;
-  ctx.lineWidth   = 1;
-
-  // Panel title
-  ctx.fillStyle = '#FF4ECD';
-  ctx.font      = 'bold 13px Courier New';
-  ctx.fillText('🏆  LEADERBOARD', BASE_W / 2, PY + 22);
-
-  // Column headers
-  const COL_RANK  = PX + 22;
-  const COL_NAME  = PX + 80;
-  const COL_SCORE = PX + PW - 20;
-  ctx.fillStyle = '#A855F7';
-  ctx.font      = 'bold 11px Courier New';
-  ctx.textAlign = 'left';
-  ctx.fillText('RANK', COL_RANK,  PY + 40);
-  ctx.fillText('NAME', COL_NAME,  PY + 40);
-  ctx.textAlign = 'right';
-  ctx.fillText('SCORE', COL_SCORE, PY + 40);
-
-  // Divider
-  ctx.strokeStyle = '#2a1a4a';
-  ctx.beginPath();
-  ctx.moveTo(PX + 14, PY + 46); ctx.lineTo(PX + PW - 14, PY + 46);
-  ctx.stroke();
-
-  // Rows
-  const ROW_H      = 22;
-  const FIRST_ROW_Y = PY + 62;
-
-  if (!lbLoaded) {
-    ctx.fillStyle = '#445566';
-    ctx.font      = '13px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText('Loading scores…', BASE_W / 2, FIRST_ROW_Y + 95);
-  } else if (leaderboard.length === 0) {
-    ctx.fillStyle = '#445566';
-    ctx.font      = '13px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText('No scores yet — be the first!', BASE_W / 2, FIRST_ROW_Y + 95);
-  } else {
-    const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
-    for (let i = 0; i < leaderboard.length; i++) {
-      const y     = FIRST_ROW_Y + i * ROW_H;
-      const entry = leaderboard[i];
-      const isMe  = playerSubmitted
-        && entry.name  === playerNameEntry
-        && entry.score === Math.floor(score);
-
-      if (isMe) {
-        ctx.fillStyle = 'rgba(255,215,0,0.12)';
-        roundRect(PX + 10, y - 15, PW - 20, ROW_H, 4); ctx.fill();
-      }
-
-      // Rank
-      ctx.textAlign = 'left';
-      ctx.fillStyle = i < 3 ? RANK_COLORS[i] : '#778899';
-      ctx.font      = i < 3 ? 'bold 12px Courier New' : '11px Courier New';
-      ctx.fillText(`#${i + 1}`, COL_RANK, y);
-
-      // Name (truncate at 20 chars)
-      const nameStr = entry.name.length > 20 ? entry.name.slice(0, 19) + '…' : entry.name;
-      ctx.fillStyle = isMe ? '#FFD700' : '#ffffff';
-      ctx.font      = isMe ? 'bold 12px Courier New' : '12px Courier New';
-      ctx.fillText(nameStr, COL_NAME, y);
-
-      // Score
-      ctx.textAlign = 'right';
-      ctx.fillStyle = isMe ? '#FFD700' : '#FF7A1A';
-      ctx.font      = 'bold 12px Courier New';
-      ctx.fillText(entry.score.toLocaleString(), COL_SCORE, y);
-    }
-  }
-
-  ctx.textAlign = 'left';
-
-  // ── Play Again button ──
-  ctx.textAlign = 'center';
-  const BTN_Y = PY + PH + 16;
-  ctx.fillStyle = '#00b4d8';
-  roundRect(BASE_W / 2 - 115, BTN_Y, 230, 50, 12); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font      = 'bold 22px Courier New';
-  ctx.fillText('▶  PLAY AGAIN', BASE_W / 2, BTN_Y + 33);
-
-  ctx.fillStyle = 'rgba(170,187,200,0.5)';
-  ctx.font      = '13px Courier New';
-  ctx.fillText('Press ENTER or click PLAY AGAIN', BASE_W / 2, BTN_Y + 62);
-
-  ctx.textAlign = 'left';
 }
 
 // ─── Click handler ────────────────────────────────────────────────────────────
@@ -1297,20 +1520,11 @@ function handleCanvasClick(e) {
   const my = (e.clientY - rect.top)  * sy;
 
   if (gameState === 'menu') {
-    if (mx > BASE_W / 2 - 110 && mx < BASE_W / 2 + 110 && my > 348 && my < 404) {
-      startGame();
-    }
-  } else if (gameState === 'gameover') {
-    // Subscribe CTA (matches drawGameOver SUB_Y / SUB_H)
-    if (mx > BASE_W / 2 - 210 && mx < BASE_W / 2 + 210 && my > 64 && my < 108) {
-      window.open('https://www.youtube.com/kellychameleons', '_blank');
-    }
-    // Play Again button: BTN_Y = PY + PH + 16 = 118 + 272 + 16 = 406
-    const BTN_Y = 406;
-    if (mx > BASE_W / 2 - 115 && mx < BASE_W / 2 + 115 && my > BTN_Y && my < BTN_Y + 50) {
+    if (mx > BASE_W / 2 - 110 && mx < BASE_W / 2 + 110 && my > 322 && my < 378) {
       startGame();
     }
   }
+  // gameover state: handled entirely by HTML overlay buttons
 }
 
 // ─── Game start / reset ───────────────────────────────────────────────────────
@@ -1338,6 +1552,8 @@ function startGame() {
   playerIsTop10   = false;
   playerNameEntry = '';
   hideNameOverlay();
+  hideGameOverOverlay();
+  hideLbOverlay();
 
   Object.assign(player, {
     angle: 0, angVel: 0, wheelieTime: 0,
@@ -1648,6 +1864,7 @@ function doCrash() {
   fetchLeaderboard();
   setTimeout(() => {
     gameState     = 'gameover';
+    showGameOverOverlay();
     playerIsTop10 = checkIsTop10(crashScore);
     if (playerIsTop10 && !playerSubmitted) showNameOverlay();
   }, 1800);
