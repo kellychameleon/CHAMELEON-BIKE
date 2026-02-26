@@ -2,24 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Wheelie Runner</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
     body {
       background: #0a0a1a;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
+      min-height: 100%;
+      height: 100%;
       font-family: 'Courier New', monospace;
       overflow: hidden;
     }
     #wrapper {
       display: flex;
       flex-direction: column;
-      align-items: stretch;
+      align-items: center;
     }
     canvas {
       display: block;
@@ -30,12 +35,15 @@
     #btn-row {
       display: flex;
       justify-content: space-between;
-      padding: 12px 20px;
+      align-items: center;
+      padding: 10px 16px;
       pointer-events: none;
+      box-sizing: border-box;
+      flex-shrink: 0;
     }
     .game-btn {
-      width: 100px;
-      height: 100px;
+      width: 110px;
+      height: 110px;
       border-radius: 50%;
       border: 3px solid #fff;
       display: flex;
@@ -52,6 +60,7 @@
       pointer-events: all;
       transition: transform 0.08s, opacity 0.08s;
       opacity: 0.88;
+      flex-shrink: 0;
     }
     .game-btn:active { transform: scale(0.92); opacity: 1; }
     #btn-pop { background: rgba(233, 69, 96, 0.85); }
@@ -77,13 +86,27 @@ const BASE_H = 500;
 canvas.width = BASE_W;
 canvas.height = BASE_H;
 
-// Scale canvas for retina / viewport
+// Scale canvas for retina / viewport — always centered, no cropping
 function resize() {
-  const maxW = Math.min(window.innerWidth - 8, 1100);
-  const maxH = window.innerHeight - 8;
-  const scale = Math.min(maxW / BASE_W, maxH / BASE_H);
-  canvas.style.width  = (BASE_W * scale) + 'px';
-  canvas.style.height = (BASE_H * scale) + 'px';
+  const vw   = window.innerWidth;
+  const vh   = window.innerHeight;
+
+  // Reserve height for the button row below the game
+  const btnRowH = 148;
+  const availW  = vw;
+  const availH  = vh - btnRowH;
+
+  // Fit canvas within available space while preserving aspect ratio
+  const scale   = Math.min(availW / BASE_W, availH / BASE_H);
+  const canvasW = Math.round(BASE_W * scale);
+  const canvasH = Math.round(BASE_H * scale);
+
+  canvas.style.width  = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+  canvas.style.marginLeft = '';
+
+  // Match button row width to canvas so POP/HOP stay at canvas edges
+  document.getElementById('btn-row').style.width = canvasW + 'px';
 }
 resize();
 window.addEventListener('resize', resize);
@@ -97,40 +120,70 @@ const BIKE_LEN   = 60;
 // angle < 0 = front wheel UP (wheelie)
 // angle = 0 = both wheels down (normal riding — default equilibrium)
 // angle > 0 = nose down (crash direction)
-const LEAN_BACK   = 0.009;    // force applied when holding wheelie key (drives angle negative)
-const SPRING_K    = 0.022;    // spring constant — restores angle to 0 when released
-const ANG_DAMP    = 0.88;     // angular damping
-const CRASH_WHEELIE = -1.22;  // angle too negative = fell back off the bike
+const LEAN_BACK     = 0.009;  // force applied when holding wheelie key (drives angle negative)
+const SPRING_K      = 0.022;  // spring constant — restores angle to 0 when released
+const ANG_DAMP      = 0.88;   // angular damping
+const CRASH_WHEELIE = -1.55;  // angle too negative = fell back off the bike
+const FLOAT_FRAMES  = 28;     // frames of reduced gravity at peak after double-jump
+const FLOAT_GRAVITY = 0.04;   // gravity during float window (vs normal 0.55)
+
+// ─── Jump / physics constants (match jump-test.html sandbox) ─────────────────
+const GRAVITY          = 0.55;   // pixels per frame² pulled toward ground
+const JUMP_VEL         = -12;    // manual jump launch velocity
+const SUPER_VEL        = -20;    // double-tap from ground
+const MID_AIR_VEL      = -18;    // mid-air boost (second tap while airborne)
+const RAMP_VEL         = -13;    // auto-launch off a ramp obstacle
+const BOUNCE_VEL       = -9;     // hood-bounce rebound off cop car roof
+const COPCAR_CLEAR     = -55;    // jumpY must be below this (more negative) to clear cop car
+const BOUNCE_MIN_VEL   = 2;      // descending speed needed to trigger hood bounce (not crash)
+const BOUNCE_MIN_Y     = -25;    // must be this high above ground for hood bounce to register
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 const keys = {};
-let popHeld    = false;  // wheelie button held
-let hopTapped  = false;  // jump button tapped (consumed each frame)
+let popHeld         = false;  // wheelie button currently held
+let popTapped       = false;  // true for ONE frame when pop is freshly pressed
+let popHoldFrames   = 0;      // consecutive frames pop has been held (for loop-out)
+let hopTapped       = false;  // single jump (consumed each frame)
+let superHopPending = false;  // double-tap super jump (consumed each frame)
+let lastHopTime     = 0;      // timestamp of last hop input for double-tap detection
+
+// Call this for every HOP input — detects double-tap within 300ms
+function registerHop() {
+  if (gameState !== 'playing') { startGame(); return; }
+  const now = Date.now();
+  if (now - lastHopTime < 300) {
+    superHopPending = true;  // second tap close enough → super jump
+    hopTapped = false;
+  } else {
+    hopTapped = true;
+  }
+  lastHopTime = now;
+}
 
 document.addEventListener('keydown', e => {
   if (keys[e.code]) return; // ignore repeat
   keys[e.code] = true;
   if (['Space','ArrowUp','ArrowRight'].includes(e.code)) e.preventDefault();
   if ((e.code === 'Space' || e.code === 'Enter') && gameState !== 'playing') { startGame(); return; }
-  // ↑ arrow = jump (HOP)
-  if (e.code === 'ArrowUp' && gameState === 'playing') hopTapped = true;
+  if (e.code === 'ArrowUp'    && gameState === 'playing') registerHop();
+  if (e.code === 'ArrowRight' && gameState === 'playing') popTapped = true;
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
-// POP button — hold for wheelie
+// POP button — tap to wheelie (each press = impulse; hold too long = loop out and crash)
 const btnPop = document.getElementById('btn-pop');
-btnPop.addEventListener('touchstart', e => { popHeld = true;  e.preventDefault(); }, { passive: false });
+btnPop.addEventListener('touchstart', e => { popHeld = true; popTapped = true; e.preventDefault(); }, { passive: false });
 btnPop.addEventListener('touchend',   e => { popHeld = false; e.preventDefault(); }, { passive: false });
 btnPop.addEventListener('touchcancel',e => { popHeld = false; });
-btnPop.addEventListener('mousedown',  e => { popHeld = true;  e.preventDefault(); });
+btnPop.addEventListener('mousedown',  e => { popHeld = true; popTapped = true; e.preventDefault(); });
 btnPop.addEventListener('mouseup',    e => { popHeld = false; });
 btnPop.addEventListener('mouseleave', e => { popHeld = false; });
 
-// HOP button — tap to jump
+// HOP button — tap to jump (double-tap = super jump)
 const btnHop = document.getElementById('btn-hop');
-btnHop.addEventListener('touchstart', e => { hopTapped = true; e.preventDefault(); }, { passive: false });
+btnHop.addEventListener('touchstart', e => { registerHop(); e.preventDefault(); }, { passive: false });
 btnHop.addEventListener('touchend',   e => { e.preventDefault(); }, { passive: false });
-btnHop.addEventListener('mousedown',  e => { hopTapped = true; e.preventDefault(); });
+btnHop.addEventListener('mousedown',  e => { registerHop(); e.preventDefault(); });
 
 // Tap canvas to navigate menus
 canvas.addEventListener('click', handleCanvasClick);
@@ -177,11 +230,13 @@ let obstacles    = [];
 let collectibles = [];
 let particles    = [];
 let clouds       = [];
+let nextHeliDist = 2200; // helicopter spawns independently of ground obstacles
 let bgDecor      = [];
 let groundSegs   = []; // decorative ground stripe offsets
 
-let nextObsDist  = 500;
-let nextCoinDist = 250;
+let nextObsDist    = 500;
+let nextCoinDist   = 250;
+let copCarCooldown = 0;  // pixel distance remaining before another cop car is allowed
 
 // ─── Wheel spin accumulator ───────────────────────────────────────────────────
 let wheelSpin = 0;
@@ -195,25 +250,28 @@ const copCarImg   = new Image();
 copCarImg.src     = 'cop-car.png';
 let   copCarClean = null; // white-bg-removed version, built on load
 
-copCarImg.onload = function() {
-  // Strip the white background from the PNG so it blends with the dark canvas
-  const tmp  = document.createElement('canvas');
-  tmp.width  = copCarImg.naturalWidth;
-  tmp.height = copCarImg.naturalHeight;
+function stripWhiteBg(img) {
+  const tmp = document.createElement('canvas');
+  tmp.width  = img.naturalWidth;
+  tmp.height = img.naturalHeight;
   const tc   = tmp.getContext('2d');
-  tc.drawImage(copCarImg, 0, 0);
-  const id   = tc.getImageData(0, 0, tmp.width, tmp.height);
-  const d    = id.data;
+  tc.drawImage(img, 0, 0);
+  const id = tc.getImageData(0, 0, tmp.width, tmp.height);
+  const d  = id.data;
   for (let i = 0; i < d.length; i += 4) {
     const minC = Math.min(d[i], d[i+1], d[i+2]);
-    if (minC > 235) {
-      // Smooth fade: pure white → transparent, 235 → opaque
-      d[i+3] = Math.round(Math.max(0, (255 - minC) / 20) * 255);
-    }
+    if (minC > 220) d[i+3] = Math.round(Math.max(0, (255 - minC) / 35) * 255);
   }
   tc.putImageData(id, 0, 0);
-  copCarClean = tmp;
-};
+  return tmp;
+}
+
+copCarImg.onload = () => { copCarClean = stripWhiteBg(copCarImg); };
+
+const heliImg   = new Image();
+heliImg.src     = 'helicopter.png';
+let   heliClean = null;
+heliImg.onload  = () => { heliClean = stripWhiteBg(heliImg); };
 
 // ─── Initialize scene ─────────────────────────────────────────────────────────
 function initScene() {
@@ -257,10 +315,22 @@ function getGamePhase() {
 }
 
 // ─── Obstacle spawning ────────────────────────────────────────────────────────
+// Minimum pixel gap between any two cop car spawns (car is 480px wide + ramp,
+// so this ensures the player has a clear runway to land and recover before the next one).
+const COPCAR_MIN_GAP = 1400;
+
+function spawnCopCar(x) {
+  obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
+  obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+  copCarCooldown = COPCAR_MIN_GAP;
+}
+
 function spawnObstacle() {
   const roll  = Math.random();
   const phase = getGamePhase();
   const x     = BASE_W + 80;
+  // If cooldown is active, downgrade any cop-car roll to a cone
+  const canSpawnCopCar = copCarCooldown <= 0;
 
   if (phase === 1) {
     // Potholes and cones only — player learns to jump
@@ -273,34 +343,28 @@ function spawnObstacle() {
     // Cop cars appear rarely (~10%)
     if (roll < 0.45) {
       obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 22, h: 18, passed: false });
-    } else if (roll < 0.90) {
+    } else if (roll < 0.90 || !canSpawnCopCar) {
       obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
     } else {
-      // Ramp 30px in front of cop car — lands player right at the roof
-      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
-      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+      spawnCopCar(x);
     }
   } else if (phase === 3) {
     // Cop cars more frequent (~25%)
     if (roll < 0.38) {
       obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 24, h: 18, passed: false });
-    } else if (roll < 0.75) {
+    } else if (roll < 0.75 || !canSpawnCopCar) {
       obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
     } else {
-      // Ramp 30px in front of cop car — lands player right at the roof
-      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
-      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+      spawnCopCar(x);
     }
   } else {
     // Phase 4 — full chaos (~40% cop cars)
     if (roll < 0.30) {
       obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 24, h: 18, passed: false });
-    } else if (roll < 0.60) {
+    } else if (roll < 0.60 || !canSpawnCopCar) {
       obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
     } else {
-      // Ramp 30px in front of cop car — lands player right at the roof
-      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
-      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+      spawnCopCar(x);
     }
   }
 }
@@ -309,6 +373,23 @@ function spawnCoin() {
   const x = BASE_W + 40;
   const y = GROUND_Y - 44 - Math.random() * 70;
   collectibles.push({ x, y, r: 10, spin: Math.random() * Math.PI * 2, taken: false });
+}
+
+function spawnHelicopter() {
+  // Helicopter draws from the image; drawH is the rendered height.
+  // Collision uses only the fuselage body (left ~62% wide, middle ~68% tall after skipping rotor).
+  const drawH = 110;
+  const aspect = heliImg.naturalWidth && heliImg.naturalHeight
+    ? heliImg.naturalWidth / heliImg.naturalHeight : 3.3;
+  const drawW = Math.round(drawH * aspect);
+  obstacles.push({
+    type: 'helicopter',
+    x: BASE_W + 60,
+    drawY: GROUND_Y - 218,  // top of image; body center ends up ~GROUND_Y-160
+    w: drawW,
+    h: drawH,
+    passed: false,
+  });
 }
 
 // ─── Particles ────────────────────────────────────────────────────────────────
@@ -402,11 +483,18 @@ function drawBackground() {
 
 function drawObstacles() {
   obstacles.forEach(obs => {
-    if (obs.type === 'pothole')       drawPothole(obs);
-    else if (obs.type === 'cone')     drawCone(obs);
-    else if (obs.type === 'ramp')     drawRamp(obs);
-    else if (obs.type === 'copcar')   drawCopCar(obs);
+    if (obs.type === 'pothole')          drawPothole(obs);
+    else if (obs.type === 'cone')        drawCone(obs);
+    else if (obs.type === 'ramp')        drawRamp(obs);
+    else if (obs.type === 'copcar')      drawCopCar(obs);
+    else if (obs.type === 'helicopter')  drawHelicopter(obs);
   });
+}
+
+function drawHelicopter(obs) {
+  const src = heliClean || (heliImg.complete && heliImg.naturalWidth > 0 ? heliImg : null);
+  if (!src) return;
+  ctx.drawImage(src, obs.x, obs.drawY, obs.w, obs.h);
 }
 
 function drawPothole(obs) {
@@ -691,6 +779,29 @@ function drawBike() {
   }
 }
 
+function drawBikeCrash() {
+  if (!spriteImg.complete || spriteImg.naturalWidth === 0) return;
+  const SW    = 185;
+  const SH    = Math.round(SW * spriteImg.naturalHeight / spriteImg.naturalWidth);
+  const rearFX = 0.20;
+  const rearFY = 0.86;
+
+  // Tint red briefly at start of crash
+  if (player.crashAlpha > 0.8) {
+    ctx.save();
+    ctx.filter = 'hue-rotate(340deg) saturate(4)';
+  }
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, player.crashAlpha);
+  ctx.translate(player.crashX - 28, player.crashY);
+  ctx.rotate(player.crashRot);
+  ctx.drawImage(spriteImg, -SW * rearFX, -SH * rearFY, SW, SH);
+  ctx.restore();
+
+  if (player.crashAlpha > 0.8) ctx.restore();
+}
+
 function drawParticles() {
   particles.forEach(p => {
     ctx.globalAlpha = Math.max(0, p.life);
@@ -911,20 +1022,29 @@ function startGame() {
   score        = 0;
   distance     = 0;
   speed        = 5;
-  gameTime     = 0;
-  scrollX      = 0;
-  wheelSpin    = 0;
-  jumpsMade    = 0;
+  gameTime        = 0;
+  scrollX         = 0;
+  wheelSpin       = 0;
+  jumpsMade       = 0;
+  hopTapped       = false;
+  superHopPending = false;
+  lastHopTime     = 0;
+  popTapped       = false;
+  popHoldFrames   = 0;
+  nextHeliDist    = 2200;
   obstacles    = [];
   collectibles = [];
   particles    = [];
-  nextObsDist  = 500;
-  nextCoinDist = 250;
+  nextObsDist    = 500;
+  nextCoinDist   = 250;
+  copCarCooldown = 0;
 
   Object.assign(player, {
     angle: 0, angVel: 0, wheelieTime: 0,
     jumpY: 0, jumpVel: 0, onGround: true,
-    alive: true, deathTimer: 0,
+    alive: true, deathTimer: 0, midAirBoosted: false, floatFrames: 0,
+    crashX: 0, crashY: 0, crashVx: 0, crashVy: 0,
+    crashRot: 0, crashRotVel: 0, crashAlpha: 1,
   });
 
   initScene();
@@ -934,6 +1054,25 @@ function startGame() {
 // ─── Update ───────────────────────────────────────────────────────────────────
 function update() {
   if (gameState !== 'playing') return;
+
+  // ── Crash ragdoll physics (runs while gameover transition is pending) ──
+  if (!player.alive) {
+    player.crashVy  += 0.65;              // gravity
+    player.crashY   += player.crashVy;
+    player.crashX   += player.crashVx;
+    player.crashRot += player.crashRotVel;
+    player.crashRotVel *= 0.97;           // spin slows slightly
+    // Bounce off the ground
+    if (player.crashY >= GROUND_Y) {
+      player.crashY   = GROUND_Y;
+      player.crashVy *= -0.38;            // bounce with energy loss
+      player.crashVx *= 0.72;            // friction
+      player.crashRotVel *= 0.5;
+      if (Math.abs(player.crashVy) < 0.8) player.crashVy = 0;
+    }
+    player.crashAlpha = Math.max(0, player.crashAlpha - 0.007);
+    return;
+  }
 
   gameTime++;
   speed   = 5 + Math.min(gameTime / 1800, 7);
@@ -952,6 +1091,7 @@ function update() {
   // background scrolling is handled by scrollX in drawBackground()
 
   // ── Obstacle spawning (phase-aware gaps) ──
+  if (copCarCooldown > 0) copCarCooldown -= speed;
   nextObsDist -= speed;
   if (nextObsDist <= 0) {
     spawnObstacle();
@@ -969,24 +1109,44 @@ function update() {
     nextCoinDist = 180 + Math.random() * 260;
   }
 
+  // ── Helicopter spawning (airborne, independent of ground obstacles) ──
+  nextHeliDist -= speed;
+  if (nextHeliDist <= 0 && getGamePhase() >= 2) {
+    spawnHelicopter();
+    nextHeliDist = 1400 + Math.random() * 1800;
+  }
+
   // ── Move obstacles & coins ──
-  obstacles    = obstacles.filter(o => o.x > -200 && !o.passed);
+  obstacles    = obstacles.filter(o => o.x > -(o.w || 200) - 100 && !o.passed);
   collectibles = collectibles.filter(c => c.x > -30 && !c.taken);
   obstacles.forEach(o => { o.x -= speed; });
   collectibles.forEach(c => { c.x -= speed; });
 
-  // ── Player physics ──
-  if (isWheelieHeld()) {
-    // Front wheel lifts: drive angle negative
-    player.angVel -= LEAN_BACK * (1 + Math.abs(player.angle) * 0.3);
-  } else {
-    // Spring restores to angle=0 — bike just rides without crashing
-    player.angVel -= player.angle * SPRING_K;
+  // ── Player physics — tap-based wheelie ──
+  // Tap  → angular impulse pops front wheel up.
+  // Hold → spring target shifts to -0.38 (sustained wheelie equilibrium — no oscillation).
+  // Release → spring target returns to 0 (wheel comes back to level).
+  // Hold too long past 52 frames → loop-out crash.
+  if (popTapped) {
+    popTapped = false;
+    player.angVel -= 0.15;  // tap impulse: lifts front wheel
   }
-  player.angVel  *= ANG_DAMP;
-  player.angle   += player.angVel;
-  // Clamp: never go much past nose-down (small positive) or too far wheelie (negative)
-  player.angle    = Math.max(CRASH_WHEELIE + 0.08, Math.min(player.angle, 0.35));
+  if (isWheelieHeld()) {
+    popHoldFrames++;
+    if (popHoldFrames > 90) {
+      // Loop-out: the longer you hold past the limit, the faster it tips over
+      player.angVel -= (popHoldFrames - 90) * 0.0007;
+    }
+  } else {
+    popHoldFrames = 0;
+  }
+  // Spring target: held = sustained wheelie; released = level
+  const springTarget = isWheelieHeld() ? -0.38 : 0;
+  player.angVel -= (player.angle - springTarget) * SPRING_K;
+  player.angVel *= ANG_DAMP;
+  player.angle  += player.angVel;
+  // Clamp nose-down only; let wheelie overshoot trigger the crash check below
+  player.angle   = Math.min(player.angle, 0.35);
 
   // Wheelie counter (angle negative = front wheel up)
   if (player.angle < -0.25) {
@@ -1003,21 +1163,53 @@ function update() {
   if (hopTapped) {
     hopTapped = false;
     if (player.onGround && player.jumpY === 0) {
-      player.jumpVel  = -12;
+      player.jumpVel  = JUMP_VEL;
       player.jumpY    = -1;
       player.onGround = false;
       burst(player.x, player.y, '#00b4d8', 6, 0.8);
     }
   }
 
+  // ── Super jump (double-tap HOP) — launches extra high to clear cop cars ──
+  if (superHopPending) {
+    superHopPending = false;
+    if (player.onGround && player.jumpY === 0) {
+      // Double-tap from ground → straight super jump
+      player.jumpVel       = SUPER_VEL;
+      player.jumpY         = -1;
+      player.onGround      = false;
+      player.midAirBoosted = false;
+      burst(player.x, player.y, '#FFD700', 14, 1.1);
+      burst(player.x, player.y, '#FF4ECD',  8, 0.9);
+    } else if (player.jumpY < -2 && !player.midAirBoosted) {
+      // Mid-air boost — only ONE allowed per jump; float window starts at the peak
+      player.jumpVel       = MID_AIR_VEL;
+      player.midAirBoosted = true;
+      player.floatFrames   = 0;
+      burst(player.x, player.y + player.jumpY, '#FFD700', 14, 1.1);
+      burst(player.x, player.y + player.jumpY, '#FF4ECD',  8, 0.9);
+    }
+    // Third tap (or more) while already boosted mid-air: silently ignored
+  }
+
   // ── Jump physics ──
   if (player.jumpY < 0 || player.jumpVel !== 0) {
-    player.jumpVel += 0.55;
-    player.jumpY   += player.jumpVel;
+    // Float: after mid-air boost, hang at the peak for FLOAT_FRAMES frames
+    const nearPeak = player.jumpVel > -2;
+    const floating = player.midAirBoosted && nearPeak && player.floatFrames < FLOAT_FRAMES;
+    if (floating) {
+      player.floatFrames++;
+      player.jumpVel += FLOAT_GRAVITY;  // barely any pull during the float window
+    } else {
+      player.jumpVel += GRAVITY;         // normal gravity
+    }
+    player.jumpY += player.jumpVel;
     if (player.jumpY >= 0) {
-      player.jumpY   = 0;
-      player.jumpVel = 0;
-      player.onGround = true;
+      player.jumpY         = 0;
+      player.jumpVel       = 0;
+      player.onGround      = true;
+      player.midAirBoosted = false;
+      player.floatFrames   = 0;
     }
   }
 
@@ -1055,7 +1247,7 @@ function update() {
     } else if (obs.type === 'ramp') {
       // Auto-launch player when they hit the ramp on the ground
       if (overlapping && player.onGround && player.jumpY === 0) {
-        player.jumpVel  = -13;
+        player.jumpVel  = RAMP_VEL;
         player.jumpY    = -1;
         player.onGround = false;
         burst(player.x, player.y, '#FF9500', 8, 0.9);
@@ -1064,12 +1256,44 @@ function update() {
 
     } else if (obs.type === 'copcar') {
       // Must be well airborne (>55px off ground) to clear the bigger car
-      if (overlapping && player.jumpY > -55) { doCrash(); return; }
+      if (overlapping && player.jumpY > COPCAR_CLEAR) {
+        // Hood bounce: if descending onto the roof, bounce off instead of crashing
+        if (player.jumpVel > BOUNCE_MIN_VEL && player.jumpY < BOUNCE_MIN_Y) {
+          obs.passed     = true;
+          player.jumpVel = BOUNCE_VEL;
+          player.midAirBoosted = false;
+          player.floatFrames   = 0;
+          score += 50;
+          jumpsMade++;
+          burst(player.x, player.y + player.jumpY, '#FF7A1A', 12, 1.0);
+          burst(player.x, player.y + player.jumpY, '#FFD700',  8, 0.8);
+        } else {
+          doCrash(); return;
+        }
+      }
       if (justCleared) {
         obs.passed = true;
         score += 100;
         jumpsMade++;
         burst(obs.x + obs.w / 2, obs.y, '#FFD700', 14);
+      }
+
+    } else if (obs.type === 'helicopter') {
+      // Collision box = fuselage body only (left 62% wide, skip top 15% rotor, 68% tall)
+      const bodyX   = obs.x;
+      const bodyY   = obs.drawY + obs.h * 0.15;
+      const bodyR   = obs.x    + obs.w * 0.62;
+      const bodyBot = bodyY    + obs.h * 0.68;
+      // Player torso center (rider is ~55px above wheel contact)
+      const torsoY  = player.y + player.jumpY - 55;
+      const hOver   = frontX > bodyX && rearX < bodyR;
+      const vOver   = torsoY > bodyY && torsoY < bodyBot;
+      if (hOver && vOver) { doCrash(); return; }
+      // Cleared once entire image (including tail) has passed the player
+      if (rearX >= obs.x + obs.w) {
+        obs.passed = true;
+        score += 75;
+        burst(obs.x + obs.w * 0.3, obs.drawY + obs.h * 0.5, '#FF4ECD', 10);
       }
     }
   }
@@ -1101,10 +1325,24 @@ function update() {
 function doCrash() {
   if (!player.alive) return;
   player.alive = false;
-  burst(player.x, player.y + player.jumpY, '#e94560', 22, 1.2);
-  burst(player.x, player.y + player.jumpY, '#fff',    10, 0.8);
+
+  const cx = player.x;
+  const cy = player.y + player.jumpY;
+
+  // Ragdoll direction: backward flip (loop-out) vs forward tumble (obstacle hit)
+  const loopOut = player.angle < -0.6;
+  player.crashX      = cx;
+  player.crashY      = cy;
+  player.crashVx     = loopOut ? -2.5 : 3.5;   // slide direction
+  player.crashVy     = -7;                       // initial upward bounce
+  player.crashRot    = player.angle;
+  player.crashRotVel = loopOut ? -0.22 : 0.18;  // spin direction matches crash
+  player.crashAlpha  = 1.0;
+
+  burst(cx, cy, '#e94560', 22, 1.2);
+  burst(cx, cy, '#fff',    10, 0.8);
   if (score > highScore) highScore = score;
-  setTimeout(() => { gameState = 'gameover'; }, 900);
+  setTimeout(() => { gameState = 'gameover'; }, 1800);
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
@@ -1115,7 +1353,7 @@ function render() {
   drawObstacles();
   drawCollectibles();
   drawParticles();
-  if (player.alive) drawBike();
+  if (player.alive) drawBike(); else drawBikeCrash();
 
   if (gameState === 'playing')  drawHUD();
   if (gameState === 'menu')     drawMenu();

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Jump Physics Sandbox</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      gap: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #left {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 16px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    canvas {
+      border: 2px solid #e94560;
+      border-radius: 4px;
+      display: block;
+    }
+    #keys {
+      font-size: 12px;
+      color: #556;
+      line-height: 1.8;
+    }
+    #keys span { color: #FF4ECD; }
+    #panel {
+      background: #0e0e22;
+      border-left: 2px solid #1a1a3a;
+      padding: 20px 16px;
+      width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+    }
+    h3 { color: #FF4ECD; font-size: 14px; margin-bottom: 12px; letter-spacing: 2px; }
+    h4 { color: #A855F7; font-size: 11px; margin: 14px 0 6px; letter-spacing: 1px; text-transform: uppercase; }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .row label { font-size: 11px; color: #889; }
+    .row .val   { font-size: 12px; color: #FFD700; min-width: 42px; text-align: right; }
+    input[type=range] {
+      width: 100%;
+      accent-color: #FF4ECD;
+      margin-bottom: 10px;
+    }
+    hr { border: none; border-top: 1px solid #1a1a3a; margin: 12px 0; }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .stat-row .lbl { color: #778; }
+    .stat-row .v   { font-weight: bold; }
+    .green  { color: #00e676; }
+    .red    { color: #e94560; }
+    .yellow { color: #FFD700; }
+    .pink   { color: #FF4ECD; }
+    button {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      font-weight: bold;
+      margin-top: 6px;
+      letter-spacing: 1px;
+    }
+    #btn-reset  { background: #223; color: #aaa; border: 1px solid #334; }
+    #btn-jump   { background: rgba(0,180,216,0.85); color: #fff; }
+    #btn-super  { background: rgba(255,215,0,0.85); color: #000; }
+    #btn-ramp   { background: rgba(255,122,26,0.85); color: #fff; }
+    .result {
+      text-align: center;
+      font-size: 22px;
+      font-weight: bold;
+      margin-top: 10px;
+      min-height: 30px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="left">
+  <canvas id="c" width="820" height="420"></canvas>
+  <div id="keys">
+    <span>SPACE / ↑</span> = jump &nbsp;|&nbsp;
+    <span>double-tap ↑</span> = super jump &nbsp;|&nbsp;
+    <span>R</span> = reset
+  </div>
+</div>
+
+<div id="panel">
+  <h3>⚙ PHYSICS SANDBOX</h3>
+
+  <h4>Jump velocities</h4>
+  <div class="row"><label>Manual jump vel</label><span class="val" id="v-jump">-12</span></div>
+  <input type="range" id="s-jump" min="-28" max="-5" step="0.5" value="-12">
+
+  <div class="row"><label>Super jump vel</label><span class="val" id="v-super">-20</span></div>
+  <input type="range" id="s-super" min="-32" max="-10" step="0.5" value="-20">
+
+  <div class="row"><label>Ramp launch vel</label><span class="val" id="v-ramp">-13</span></div>
+  <input type="range" id="s-ramp" min="-28" max="-5" step="0.5" value="-13">
+
+  <h4>Double-jump float</h4>
+  <div class="row"><label>Float duration (frames)</label><span class="val" id="v-float">28</span></div>
+  <input type="range" id="s-float" min="0" max="80" step="1" value="28">
+
+  <div class="row"><label>Float gravity</label><span class="val" id="v-fgrav">0.04</span></div>
+  <input type="range" id="s-fgrav" min="0" max="0.3" step="0.01" value="0.04">
+
+  <h4>World physics</h4>
+  <div class="row"><label>Gravity (per frame)</label><span class="val" id="v-grav">0.55</span></div>
+  <input type="range" id="s-grav" min="0.2" max="1.4" step="0.05" value="0.55">
+
+  <div class="row"><label>Scroll speed</label><span class="val" id="v-speed">5</span></div>
+  <input type="range" id="s-speed" min="2" max="14" step="0.5" value="5">
+
+  <h4>Cop car</h4>
+  <div class="row"><label>Clear threshold (jumpY)</label><span class="val" id="v-thresh">-55</span></div>
+  <input type="range" id="s-thresh" min="-200" max="-10" step="1" value="-55">
+
+  <div class="row"><label>Car width</label><span class="val" id="v-carw">480</span></div>
+  <input type="range" id="s-carw" min="100" max="600" step="10" value="480">
+
+  <div class="row"><label>Car height</label><span class="val" id="v-carh">240</span></div>
+  <input type="range" id="s-carh" min="80" max="360" step="10" value="240">
+
+  <hr>
+
+  <div class="stat-row"><span class="lbl">Player height</span><span class="v yellow" id="d-height">0 px</span></div>
+  <div class="stat-row"><span class="lbl">Jump velocity</span><span class="v" id="d-vel">0</span></div>
+  <div class="stat-row"><span class="lbl">Peak this run</span><span class="v pink" id="d-peak">0 px</span></div>
+  <div class="stat-row"><span class="lbl">Clear threshold</span><span class="v" id="d-thresh">-55 px</span></div>
+  <div class="stat-row"><span class="lbl">In car zone?</span><span class="v" id="d-zone">-</span></div>
+
+  <hr>
+
+  <button id="btn-reset" onclick="reset()">↺  RESET  (R)</button>
+  <button id="btn-jump"  onclick="doJump()">↑  JUMP  (Space)</button>
+  <button id="btn-super" onclick="doSuperJump()">⚡ SUPER JUMP (double ↑)</button>
+  <button id="btn-ramp"  onclick="triggerRamp()">🔶 RAMP LAUNCH</button>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+// ── Canvas ────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const BASE_W = canvas.width;
+const BASE_H = canvas.height;
+const GROUND_Y = BASE_H - 80;
+const PLAYER_X = 150;
+
+// ── Tunable physics (kept in sync with sliders) ───────────────────────────────
+let JUMP_VEL     = -12;
+let SUPER_VEL    = -20;
+let RAMP_VEL     = -13;
+let GRAVITY      = 0.55;
+let SPEED        = 5;
+let CLEAR_THRESH = -55;
+let FLOAT_FRAMES = 28;   // how many frames to float at the peak after double-jump
+let FLOAT_GRAV   = 0.04; // gravity applied during float (replaces normal gravity)
+let CAR_W       = 480;
+let CAR_H       = 240;
+
+// ── Assets ────────────────────────────────────────────────────────────────────
+const spriteImg = new Image(); spriteImg.src = 'surron-sprite.png';
+const copCarImg = new Image(); copCarImg.src = 'cop-car.png';
+let copCarClean = null;
+copCarImg.onload = () => {
+  const tmp = document.createElement('canvas');
+  tmp.width  = copCarImg.naturalWidth;
+  tmp.height = copCarImg.naturalHeight;
+  const tc   = tmp.getContext('2d');
+  tc.drawImage(copCarImg, 0, 0);
+  const id = tc.getImageData(0, 0, tmp.width, tmp.height);
+  const d  = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const minC = Math.min(d[i], d[i+1], d[i+2]);
+    if (minC > 220) d[i+3] = Math.round(Math.max(0, (255 - minC) / 35) * 255);
+  }
+  tc.putImageData(id, 0, 0);
+  copCarClean = tmp;
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let jumpY, jumpVel, onGround, midAirBoosted;
+let floatFrames = 0;  // counts down during the peak-float window
+let lastHopTime = 0;
+let obstacles   = [];
+let particles   = [];
+let scrollX     = 0;
+let resultMsg   = '';
+let resultColor = '#fff';
+let resultTimer = 0;
+let peakHeight  = 0;
+
+function reset() {
+  jumpY          = 0;
+  jumpVel        = 0;
+  onGround       = true;
+  midAirBoosted  = false;
+  floatFrames    = 0;
+  lastHopTime    = 0;
+  particles      = [];
+  scrollX        = 0;
+  peakHeight     = 0;
+  resultMsg      = '';
+  resultTimer    = 0;
+
+  const rampX = BASE_W - 60;
+  obstacles = [
+    { type: 'ramp',   x: rampX,         y: GROUND_Y, w: 80, h: 55, passed: false },
+    { type: 'copcar', x: rampX + 110,   y: GROUND_Y, w: CAR_W, h: CAR_H, passed: false },
+  ];
+}
+
+// ── Jumps ─────────────────────────────────────────────────────────────────────
+function doJump() {
+  if (onGround && jumpY === 0) {
+    jumpVel       = JUMP_VEL;
+    jumpY         = -1;
+    onGround      = false;
+    midAirBoosted = false;
+    floatFrames   = 0;
+    burst(PLAYER_X, GROUND_Y, '#00b4d8', 6, 0.8);
+  }
+}
+
+function doSuperJump() {
+  if (onGround && jumpY === 0) {
+    jumpVel       = SUPER_VEL;
+    jumpY         = -1;
+    onGround      = false;
+    midAirBoosted = false;
+    floatFrames   = 0;
+    burst(PLAYER_X, GROUND_Y, '#FFD700', 12, 1.1);
+    burst(PLAYER_X, GROUND_Y, '#FF4ECD',  7, 0.9);
+  } else if (jumpY < -2 && !midAirBoosted) {
+    jumpVel       = SUPER_VEL;
+    midAirBoosted = true;
+    floatFrames   = 0;  // float window starts counting at peak
+    burst(PLAYER_X, GROUND_Y + jumpY, '#FFD700', 12, 1.1);
+    burst(PLAYER_X, GROUND_Y + jumpY, '#FF4ECD',  7, 0.9);
+  }
+}
+
+function triggerRamp() {
+  jumpVel       = RAMP_VEL;
+  jumpY         = -1;
+  onGround      = false;
+  midAirBoosted = false;
+  floatFrames   = 0;
+  burst(PLAYER_X, GROUND_Y, '#FF7A1A', 8, 0.9);
+}
+
+function registerHop() {
+  const now = Date.now();
+  if (now - lastHopTime < 300) {
+    doSuperJump();
+  } else {
+    doJump();
+  }
+  lastHopTime = now;
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+function burst(x, y, color, n = 10, str = 1) {
+  for (let i = 0; i < n; i++) {
+    const a  = Math.random() * Math.PI * 2;
+    const sp = (2 + Math.random() * 4) * str;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+      life: 1, decay: 0.03 + Math.random() * 0.03,
+      r: 3 + Math.random() * 4, color,
+    });
+  }
+}
+
+// ── Update ────────────────────────────────────────────────────────────────────
+function update() {
+  if (resultTimer > 0) { resultTimer--; return; }
+
+  scrollX += SPEED;
+
+  // Move obstacles
+  obstacles.forEach(o => { o.x -= SPEED; });
+  obstacles = obstacles.filter(o => o.x > -700 && !o.passed);
+
+  // Jump physics
+  if (jumpY < 0 || jumpVel !== 0) {
+    // Float: after mid-air boost, hang at peak for FLOAT_FRAMES frames
+    const nearPeak  = jumpVel > -2;   // velocity close to zero = near or past peak
+    const floating  = midAirBoosted && nearPeak && floatFrames < FLOAT_FRAMES;
+    if (floating) {
+      floatFrames++;
+      jumpVel += FLOAT_GRAV;          // barely any pull during float
+    } else {
+      jumpVel += GRAVITY;             // normal gravity
+    }
+    jumpY += jumpVel;
+    if (jumpY >= 0) {
+      jumpY         = 0;
+      jumpVel       = 0;
+      onGround      = true;
+      midAirBoosted = false;
+      floatFrames   = 0;
+    }
+  }
+
+  // Track peak
+  if (jumpY < peakHeight) peakHeight = jumpY;
+
+  // Particle update
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life -= p.decay; });
+  particles = particles.filter(p => p.life > 0);
+
+  // Collision
+  const frontX = PLAYER_X + 30;
+  const rearX  = PLAYER_X - 30;
+  const inAir  = jumpY < -5;
+
+  for (const obs of obstacles) {
+    if (obs.passed) continue;
+    const over      = frontX > obs.x && rearX < obs.x + obs.w;
+    const justPassed = rearX >= obs.x + obs.w;
+
+    if (obs.type === 'ramp') {
+      if (over && onGround && jumpY === 0) {
+        jumpVel  = RAMP_VEL;
+        jumpY    = -1;
+        onGround = false;
+        midAirBoosted = false;
+        burst(PLAYER_X, GROUND_Y, '#FF7A1A', 8, 0.9);
+      }
+      if (justPassed) obs.passed = true;
+
+    } else if (obs.type === 'copcar') {
+      if (over && jumpY > CLEAR_THRESH) {
+        // Hood bounce: descending onto the roof — bounce off instead of crash
+        if (jumpVel > 2 && jumpY < -25) {
+          obs.passed  = true;
+          jumpVel     = -9;
+          midAirBoosted = false;
+          floatFrames   = 0;
+          resultMsg   = '🏄 HOOD BOUNCE! +50';
+          resultColor = '#FF7A1A';
+          resultTimer = 90;
+          burst(PLAYER_X, GROUND_Y + jumpY, '#FF7A1A', 12, 1.0);
+          burst(PLAYER_X, GROUND_Y + jumpY, '#FFD700',  8, 0.8);
+          setTimeout(reset, 1500);
+        } else {
+          resultMsg   = '💥 CRASH!  jumpY=' + Math.round(jumpY) + '  need < ' + CLEAR_THRESH;
+          resultColor = '#e94560';
+          resultTimer = 90;
+          burst(PLAYER_X, GROUND_Y + jumpY, '#e94560', 18, 1.2);
+          setTimeout(reset, 1500);
+          return;
+        }
+      }
+      if (justPassed) {
+        obs.passed  = true;
+        resultMsg   = '✅ CLEARED!  peak=' + Math.abs(Math.round(peakHeight)) + 'px';
+        resultColor = '#00e676';
+        resultTimer = 90;
+        burst(PLAYER_X, GROUND_Y, '#00e676', 14, 1.1);
+        burst(PLAYER_X, GROUND_Y, '#FFD700', 8, 0.9);
+        setTimeout(reset, 1500);
+      }
+    }
+  }
+
+  // Respawn ramp+copcar when they've scrolled past
+  if (obstacles.length === 0) reset();
+}
+
+// ── Draw helpers ──────────────────────────────────────────────────────────────
+function drawGround() {
+  // Road surface
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, GROUND_Y, BASE_W, BASE_H - GROUND_Y);
+
+  // Road line
+  ctx.strokeStyle = '#334';
+  ctx.lineWidth   = 2;
+  ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(BASE_W, GROUND_Y); ctx.stroke();
+
+  // Dashes
+  const dashOff = scrollX % 80;
+  ctx.fillStyle = 'rgba(255,200,80,0.2)';
+  for (let x = -dashOff; x < BASE_W; x += 80) {
+    ctx.fillRect(x, GROUND_Y + 6, 42, 3);
+  }
+}
+
+function drawRamp(obs) {
+  const { x, y, w, h } = obs;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + w, y - h);
+  ctx.closePath();
+  ctx.fillStyle = '#2a2a3a';
+  ctx.fill();
+  ctx.strokeStyle = '#FF7A1A';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCopCar(obs) {
+  const drawH  = obs.h;
+  const src    = copCarImg.complete && copCarImg.naturalWidth > 0;
+  const aspect = src ? copCarImg.naturalWidth / copCarImg.naturalHeight : 2;
+  const drawW  = Math.round(drawH * aspect);
+  const drawX  = obs.x;
+  const drawY  = GROUND_Y - drawH + Math.round(drawH * 0.06);
+
+  if (copCarClean) {
+    ctx.drawImage(copCarClean, drawX, drawY, drawW, drawH);
+  } else if (src) {
+    ctx.drawImage(copCarImg, drawX, drawY, drawW, drawH);
+  } else {
+    // Fallback box
+    ctx.fillStyle = '#1a2b3c';
+    ctx.fillRect(drawX, GROUND_Y - drawH, obs.w, drawH);
+    ctx.fillStyle = '#e94560';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('COP CAR', drawX + obs.w / 2, GROUND_Y - drawH / 2);
+  }
+
+  // ── Collision zone overlay ──
+  const clearY = GROUND_Y + CLEAR_THRESH;  // the line player must be above
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle   = '#e94560';
+  ctx.fillRect(drawX, clearY, obs.w * 0.7, GROUND_Y - clearY);
+  ctx.globalAlpha = 1;
+
+  // Threshold line
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(drawX - 20, clearY);
+  ctx.lineTo(drawX + obs.w * 0.7 + 20, clearY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle  = '#e94560';
+  ctx.font       = 'bold 10px monospace';
+  ctx.textAlign  = 'right';
+  ctx.fillText('threshold', drawX - 24, clearY + 4);
+  ctx.restore();
+}
+
+function drawPlayer() {
+  const py  = GROUND_Y + jumpY;
+  const ang = 0; // no wheelie in this test
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(PLAYER_X + 8, GROUND_Y + 5, 40, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+    const SW     = 185;
+    const SH     = Math.round(SW * spriteImg.naturalHeight / spriteImg.naturalWidth);
+    const rearFX = 0.20;
+    const rearFY = 0.86;
+    ctx.save();
+    ctx.translate(PLAYER_X - 28, py);
+    ctx.rotate(ang);
+    ctx.drawImage(spriteImg, -SW * rearFX, -SH * rearFY, SW, SH);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#FF4ECD';
+    ctx.fillRect(PLAYER_X - 20, py - 50, 40, 50);
+  }
+
+  // Height indicator line (shows how high above ground)
+  if (jumpY < -5) {
+    ctx.save();
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(PLAYER_X + 50, GROUND_Y);
+    ctx.lineTo(PLAYER_X + 50, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Height label
+    ctx.fillStyle  = '#FFD700';
+    ctx.font       = 'bold 11px monospace';
+    ctx.textAlign  = 'left';
+    ctx.fillText(Math.abs(Math.round(jumpY)) + 'px', PLAYER_X + 54, (GROUND_Y + py) / 2 + 4);
+    ctx.restore();
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // Background strip
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, BASE_W, 36);
+
+  ctx.font      = 'bold 13px monospace';
+  ctx.textAlign = 'left';
+
+  // Height
+  const aboveGround = Math.abs(Math.round(jumpY));
+  const overThresh  = jumpY <= CLEAR_THRESH;
+  ctx.fillStyle = overThresh ? '#00e676' : (jumpY < -10 ? '#FFD700' : '#aaa');
+  ctx.fillText('HEIGHT: ' + aboveGround + 'px', 12, 22);
+
+  // Velocity
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('VEL: ' + jumpVel.toFixed(2), 160, 22);
+
+  // Threshold
+  ctx.fillStyle = '#e94560';
+  ctx.fillText('NEED: >' + Math.abs(CLEAR_THRESH) + 'px to clear', 290, 22);
+
+  // Peak
+  ctx.fillStyle = '#FF4ECD';
+  ctx.fillText('PEAK: ' + Math.abs(Math.round(peakHeight)) + 'px', 530, 22);
+
+  // State
+  const floating = midAirBoosted && jumpVel > -2 && floatFrames < FLOAT_FRAMES && floatFrames > 0;
+  ctx.fillStyle = onGround ? '#556' : floating ? '#FF4ECD' : midAirBoosted ? '#FFD700' : '#00b4d8';
+  ctx.textAlign = 'right';
+  ctx.fillText(
+    onGround ? 'GROUNDED' : floating ? `FLOATING ${floatFrames}/${FLOAT_FRAMES}` : midAirBoosted ? 'BOOSTED' : 'AIRBORNE',
+    BASE_W - 12, 22
+  );
+
+  // Result message
+  if (resultMsg) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, resultTimer / 30);
+    ctx.font        = 'bold 26px monospace';
+    ctx.fillStyle   = resultColor;
+    ctx.textAlign   = 'center';
+    ctx.fillText(resultMsg, BASE_W / 2, BASE_H / 2 - 20);
+    ctx.restore();
+  }
+}
+
+// ── Slider wiring ─────────────────────────────────────────────────────────────
+function wire(id, varSetter, displayId, decimals = 0) {
+  const el   = document.getElementById(id);
+  const disp = document.getElementById(displayId);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    varSetter(v);
+    disp.textContent = decimals ? v.toFixed(decimals) : v;
+    // Refresh copcar obstacle size if car params changed
+    if (id === 's-carw' || id === 's-carh') {
+      obstacles.forEach(o => {
+        if (o.type === 'copcar') { o.w = CAR_W; o.h = CAR_H; }
+      });
+    }
+  });
+}
+wire('s-jump',   v => { JUMP_VEL    = v; }, 'v-jump');
+wire('s-super',  v => { SUPER_VEL   = v; }, 'v-super');
+wire('s-ramp',   v => { RAMP_VEL    = v; }, 'v-ramp');
+wire('s-float',  v => { FLOAT_FRAMES = v; }, 'v-float');
+wire('s-fgrav',  v => { FLOAT_GRAV   = v; }, 'v-fgrav', 2);
+wire('s-grav',   v => { GRAVITY      = v; }, 'v-grav', 2);
+wire('s-speed',  v => { SPEED        = v; }, 'v-speed', 1);
+wire('s-thresh', v => { CLEAR_THRESH = v; document.getElementById('d-thresh').textContent = v + ' px'; }, 'v-thresh');
+wire('s-carw',   v => { CAR_W = v; }, 'v-carw');
+wire('s-carh',   v => { CAR_H = v; }, 'v-carh');
+
+// ── Stats panel update ────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('d-height').textContent = Math.abs(Math.round(jumpY)) + ' px';
+  document.getElementById('d-vel').textContent    = jumpVel.toFixed(2);
+  document.getElementById('d-peak').textContent   = Math.abs(Math.round(peakHeight)) + ' px';
+
+  const overCar = obstacles.some(o => o.type === 'copcar' && !o.passed &&
+    PLAYER_X + 30 > o.x && PLAYER_X - 30 < o.x + o.w);
+  const zone    = document.getElementById('d-zone');
+  if (overCar) {
+    const safe = jumpY <= CLEAR_THRESH;
+    zone.textContent  = safe ? '✅ CLEAR' : '❌ CRASH';
+    zone.className    = 'v ' + (safe ? 'green' : 'red');
+  } else {
+    zone.textContent = '–';
+    zone.className   = 'v';
+  }
+}
+
+// ── Keyboard ─────────────────────────────────────────────────────────────────
+const keys = {};
+document.addEventListener('keydown', e => {
+  if (keys[e.code]) return;
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); registerHop(); }
+  if (e.code === 'KeyR') reset();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+function loop() {
+  update();
+
+  // Draw
+  ctx.fillStyle = '#0D0D1A';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  drawGround();
+
+  obstacles.forEach(o => {
+    if (o.type === 'ramp')   drawRamp(o);
+    if (o.type === 'copcar') drawCopCar(o);
+  });
+
+  drawPlayer();
+  drawParticles();
+  drawHUD();
+  updateStats();
+
+  requestAnimationFrame(loop);
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+reset();
+loop();
+</script>
+</body>
+</html>
