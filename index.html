@@ -65,7 +65,91 @@
     .game-btn:active { transform: scale(0.92); opacity: 1; }
     #btn-pop { background: rgba(233, 69, 96, 0.85); }
     #btn-hop { background: rgba(0, 180, 216, 0.85); }
+
+    /* === Name Entry Overlay === */
+    #name-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(6, 7, 27, 0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #name-overlay.visible { display: flex; }
+    #name-box {
+      background: #0e0e22;
+      border: 2px solid #FF4ECD;
+      box-shadow: 0 0 40px rgba(255, 78, 205, 0.45);
+      border-radius: 14px;
+      padding: 36px 44px;
+      text-align: center;
+      min-width: 320px;
+      max-width: 420px;
+      width: 90vw;
+    }
+    #name-trophy {
+      font-size: 48px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    #name-title {
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 42px;
+      color: #FFD700;
+      text-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+      letter-spacing: 3px;
+      margin-bottom: 6px;
+    }
+    #name-subtitle {
+      color: #aabbcc;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    #name-input {
+      width: 100%;
+      padding: 13px 16px;
+      background: #0a0a1a;
+      border: 2px solid #FF4ECD;
+      border-radius: 8px;
+      color: #fff;
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 22px;
+      letter-spacing: 2px;
+      text-align: center;
+      outline: none;
+      box-sizing: border-box;
+      margin-bottom: 6px;
+    }
+    #name-input:focus { border-color: #A855F7; box-shadow: 0 0 14px rgba(168, 85, 247, 0.4); }
+    #name-hint {
+      color: #445566;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      margin-bottom: 18px;
+    }
+    #name-submit {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #FF4ECD, #A855F7);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-family: 'Bebas Neue', 'Courier New', sans-serif;
+      font-size: 22px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    #name-submit:hover  { opacity: 0.88; }
+    #name-submit:active { transform: scale(0.97); }
   </style>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Firebase v9 compat CDN -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="wrapper">
@@ -73,6 +157,18 @@
   <div id="btn-row">
     <div class="game-btn" id="btn-pop">POP!</div>
     <div class="game-btn" id="btn-hop">HOP!</div>
+  </div>
+</div>
+
+<!-- Name entry overlay — shown when player cracks top 10 -->
+<div id="name-overlay">
+  <div id="name-box">
+    <div id="name-trophy">🏆</div>
+    <div id="name-title">TOP 10!</div>
+    <div id="name-subtitle">You cracked the leaderboard!<br>Enter your name to claim your spot.</div>
+    <input type="text" id="name-input" maxlength="20" placeholder="YOUR NAME" autocomplete="off" spellcheck="false">
+    <div id="name-hint">Letters, numbers, spaces &amp; @ only · max 20 chars</div>
+    <button id="name-submit">SUBMIT SCORE</button>
   </div>
 </div>
 
@@ -164,7 +260,11 @@ document.addEventListener('keydown', e => {
   if (keys[e.code]) return; // ignore repeat
   keys[e.code] = true;
   if (['Space','ArrowUp','ArrowRight'].includes(e.code)) e.preventDefault();
-  if ((e.code === 'Space' || e.code === 'Enter') && gameState !== 'playing') { startGame(); return; }
+  if ((e.code === 'Space' || e.code === 'Enter') && gameState !== 'playing') {
+    // Don't restart while name overlay is open
+    if (document.getElementById('name-overlay').classList.contains('visible')) return;
+    startGame(); return;
+  }
   if (e.code === 'ArrowUp'    && gameState === 'playing') registerHop();
   if (e.code === 'ArrowRight' && gameState === 'playing') popTapped = true;
 });
@@ -201,6 +301,42 @@ function isWheelieHeld() {
   return keys['ArrowRight'] || popHeld;
 }
 
+// === NAME OVERLAY EVENTS ===
+(function () {
+  const overlay   = document.getElementById('name-overlay');
+  const input     = document.getElementById('name-input');
+  const submitBtn = document.getElementById('name-submit');
+
+  // Strip disallowed characters on every input event
+  input.addEventListener('input', () => {
+    input.value = input.value.replace(/[^a-zA-Z0-9 @]/g, '');
+  });
+
+  async function submitNameAndScore() {
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    submitBtn.disabled   = true;
+    submitBtn.textContent = 'SUBMITTING…';
+    playerNameEntry = name;
+    hideNameOverlay();
+    await submitScore(name, score);
+    playerSubmitted = true;
+    await fetchLeaderboard(); // refresh with new entry
+    submitBtn.disabled    = false;
+    submitBtn.textContent = 'SUBMIT SCORE';
+  }
+
+  submitBtn.addEventListener('click', submitNameAndScore);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); submitNameAndScore(); }
+  });
+
+  // Block Space/Enter from accidentally restarting the game while overlay is open
+  overlay.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'Enter') e.stopPropagation();
+  });
+})();
+
 // ─── Game State ───────────────────────────────────────────────────────────────
 let gameState  = 'menu'; // menu | playing | dead | gameover
 let score      = 0;
@@ -224,6 +360,78 @@ const player = {
   alive: true,
   deathTimer: 0,
 };
+
+// === FIREBASE ===
+const firebaseConfig = {
+  apiKey:            'AIzaSyB6u7HPfEP9YQNz3Gt9aErF5_gXi4PpUfU',
+  authDomain:        'chameleon-bike.firebaseapp.com',
+  projectId:         'chameleon-bike',
+  storageBucket:     'chameleon-bike.firebasestorage.app',
+  messagingSenderId: '449184786509',
+  appId:             '1:449184786509:web:91d0ab27109e1b79571404',
+  measurementId:     'G-3SW10W00ZG',
+};
+
+let db = null;
+try {
+  const fbApp = firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+} catch (e) {
+  console.warn('Firebase init failed — leaderboard offline:', e);
+}
+
+// Leaderboard state
+let leaderboard     = [];     // [{name, score}] — top 10 from Firestore
+let lbLoaded        = false;  // true once first successful fetch completes
+let lbFetching      = false;  // prevents concurrent fetches
+let playerIsTop10   = false;  // set after fetch, true if score qualifies
+let playerSubmitted = false;  // true after name submitted this run
+let playerNameEntry = '';     // name to highlight in leaderboard after submit
+
+async function fetchLeaderboard() {
+  if (!db || lbFetching) return;
+  lbFetching = true;
+  try {
+    const snap = await db.collection('leaderboard')
+      .orderBy('score', 'desc').limit(10).get();
+    leaderboard = snap.docs.map(d => ({ name: d.data().name, score: d.data().score }));
+    lbLoaded    = true;
+  } catch (e) {
+    console.warn('Leaderboard fetch failed:', e);
+  }
+  lbFetching = false;
+}
+
+async function submitScore(name, scoreVal) {
+  if (!db) return;
+  try {
+    await db.collection('leaderboard').add({
+      name:      name.trim(),
+      score:     Math.floor(scoreVal),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn('Score submit failed:', e);
+  }
+}
+
+function checkIsTop10(playerScore) {
+  if (Math.floor(playerScore) <= 0) return false;
+  if (leaderboard.length < 10)      return true;
+  return Math.floor(playerScore) > leaderboard[leaderboard.length - 1].score;
+}
+
+function showNameOverlay() {
+  const overlay = document.getElementById('name-overlay');
+  const input   = document.getElementById('name-input');
+  input.value   = '';
+  overlay.classList.add('visible');
+  setTimeout(() => input.focus(), 80);
+}
+
+function hideNameOverlay() {
+  document.getElementById('name-overlay').classList.remove('visible');
+}
 
 // ─── Scene objects ────────────────────────────────────────────────────────────
 let obstacles    = [];
@@ -944,56 +1152,138 @@ function drawMenu() {
 }
 
 function drawGameOver() {
-  ctx.fillStyle = 'rgba(6,7,27,0.88)';
+  ctx.fillStyle = 'rgba(6,7,27,0.92)';
   ctx.fillRect(0, 0, BASE_W, BASE_H);
+  ctx.textAlign = 'center';
 
-  ctx.textAlign   = 'center';
-  ctx.shadowBlur  = 24;
-  ctx.shadowColor = '#e94560';
-  ctx.fillStyle   = '#e94560';
-  ctx.font        = 'bold 58px Courier New';
-  ctx.fillText('CRASHED!', BASE_W / 2, 175);
-  ctx.shadowBlur  = 0;
-
-  ctx.fillStyle = '#fff';
-  ctx.font      = 'bold 28px Courier New';
-  ctx.fillText(`Score: ${Math.floor(score)}`, BASE_W / 2, 232);
+  // ── Score line ──
+  ctx.fillStyle = '#ffffff';
+  ctx.font      = 'bold 26px Courier New';
+  ctx.fillText(`Score: ${Math.floor(score)}`, BASE_W / 2, 32);
 
   if (score >= highScore && highScore > 0) {
     ctx.fillStyle   = '#FFD700';
     ctx.shadowColor = '#FFD700';
-    ctx.shadowBlur  = 16;
-    ctx.font        = 'bold 24px Courier New';
-    ctx.fillText('✦ NEW HIGH SCORE! ✦', BASE_W / 2, 272);
+    ctx.shadowBlur  = 10;
+    ctx.font        = 'bold 15px Courier New';
+    ctx.fillText('✦ NEW HIGH SCORE! ✦', BASE_W / 2, 54);
     ctx.shadowBlur  = 0;
   } else if (highScore > 0) {
     ctx.fillStyle = '#8ec8e8';
-    ctx.font      = '20px Courier New';
-    ctx.fillText(`Best: ${Math.floor(highScore)}`, BASE_W / 2, 272);
+    ctx.font      = '14px Courier New';
+    ctx.fillText(`Best: ${Math.floor(highScore)}`, BASE_W / 2, 54);
   }
 
-  // Retry button
+  // ── Subscribe CTA button ──
+  const SUB_Y = 64, SUB_H = 44;
+  ctx.shadowColor = '#FF4ECD';
+  ctx.shadowBlur  = 16;
+  ctx.fillStyle   = '#FF4ECD';
+  roundRect(BASE_W / 2 - 210, SUB_Y, 420, SUB_H, 10); ctx.fill();
+  ctx.shadowBlur  = 0;
+  ctx.fillStyle   = '#ffffff';
+  ctx.font        = 'bold 19px Courier New';
+  ctx.fillText('▶  SUBSCRIBE ON YOUTUBE', BASE_W / 2, SUB_Y + 29);
+
+  // ── Leaderboard panel ──
+  const PX = 55, PY = 118, PW = BASE_W - 110, PH = 272;
+
+  ctx.fillStyle = 'rgba(10,10,28,0.97)';
+  roundRect(PX, PY, PW, PH, 10); ctx.fill();
+
+  ctx.strokeStyle = '#FF4ECD';
+  ctx.lineWidth   = 2;
+  ctx.shadowColor = '#FF4ECD';
+  ctx.shadowBlur  = 14;
+  roundRect(PX, PY, PW, PH, 10); ctx.stroke();
+  ctx.shadowBlur  = 0;
+  ctx.lineWidth   = 1;
+
+  // Panel title
+  ctx.fillStyle = '#FF4ECD';
+  ctx.font      = 'bold 13px Courier New';
+  ctx.fillText('🏆  LEADERBOARD', BASE_W / 2, PY + 22);
+
+  // Column headers
+  const COL_RANK  = PX + 22;
+  const COL_NAME  = PX + 80;
+  const COL_SCORE = PX + PW - 20;
+  ctx.fillStyle = '#A855F7';
+  ctx.font      = 'bold 11px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillText('RANK', COL_RANK,  PY + 40);
+  ctx.fillText('NAME', COL_NAME,  PY + 40);
+  ctx.textAlign = 'right';
+  ctx.fillText('SCORE', COL_SCORE, PY + 40);
+
+  // Divider
+  ctx.strokeStyle = '#2a1a4a';
+  ctx.beginPath();
+  ctx.moveTo(PX + 14, PY + 46); ctx.lineTo(PX + PW - 14, PY + 46);
+  ctx.stroke();
+
+  // Rows
+  const ROW_H      = 22;
+  const FIRST_ROW_Y = PY + 62;
+
+  if (!lbLoaded) {
+    ctx.fillStyle = '#445566';
+    ctx.font      = '13px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading scores…', BASE_W / 2, FIRST_ROW_Y + 95);
+  } else if (leaderboard.length === 0) {
+    ctx.fillStyle = '#445566';
+    ctx.font      = '13px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('No scores yet — be the first!', BASE_W / 2, FIRST_ROW_Y + 95);
+  } else {
+    const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
+    for (let i = 0; i < leaderboard.length; i++) {
+      const y     = FIRST_ROW_Y + i * ROW_H;
+      const entry = leaderboard[i];
+      const isMe  = playerSubmitted
+        && entry.name  === playerNameEntry
+        && entry.score === Math.floor(score);
+
+      if (isMe) {
+        ctx.fillStyle = 'rgba(255,215,0,0.12)';
+        roundRect(PX + 10, y - 15, PW - 20, ROW_H, 4); ctx.fill();
+      }
+
+      // Rank
+      ctx.textAlign = 'left';
+      ctx.fillStyle = i < 3 ? RANK_COLORS[i] : '#778899';
+      ctx.font      = i < 3 ? 'bold 12px Courier New' : '11px Courier New';
+      ctx.fillText(`#${i + 1}`, COL_RANK, y);
+
+      // Name (truncate at 20 chars)
+      const nameStr = entry.name.length > 20 ? entry.name.slice(0, 19) + '…' : entry.name;
+      ctx.fillStyle = isMe ? '#FFD700' : '#ffffff';
+      ctx.font      = isMe ? 'bold 12px Courier New' : '12px Courier New';
+      ctx.fillText(nameStr, COL_NAME, y);
+
+      // Score
+      ctx.textAlign = 'right';
+      ctx.fillStyle = isMe ? '#FFD700' : '#FF7A1A';
+      ctx.font      = 'bold 12px Courier New';
+      ctx.fillText(entry.score.toLocaleString(), COL_SCORE, y);
+    }
+  }
+
+  ctx.textAlign = 'left';
+
+  // ── Play Again button ──
+  ctx.textAlign = 'center';
+  const BTN_Y = PY + PH + 16;
   ctx.fillStyle = '#00b4d8';
-  roundRect(BASE_W / 2 - 120, 310, 240, 56, 12); ctx.fill();
+  roundRect(BASE_W / 2 - 115, BTN_Y, 230, 50, 12); ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.font      = 'bold 26px Courier New';
-  ctx.fillText('▶  PLAY AGAIN', BASE_W / 2, 346);
+  ctx.font      = 'bold 22px Courier New';
+  ctx.fillText('▶  PLAY AGAIN', BASE_W / 2, BTN_Y + 33);
 
-  ctx.fillStyle = 'rgba(170,187,200,0.65)';
-  ctx.font      = '14px Courier New';
-  ctx.fillText('Click PLAY AGAIN or press ENTER to retry', BASE_W / 2, 392);
-
-  // Tips
-  const tips = [
-    'TIP: JUMP over potholes — wheelie won\'t save you!',
-    'TIP: Traffic cones? Just ride through \'em.',
-    'TIP: Cop car = big jump. +100 points if you clear it!',
-    'TIP: Longer wheelies = score multiplier. Don\'t fall back!',
-    'TIP: Stars are worth +50 points each!',
-  ];
-  ctx.fillStyle = '#556677';
-  ctx.font      = '15px Courier New';
-  ctx.fillText(tips[Math.floor(score / 50) % tips.length], BASE_W / 2, 440);
+  ctx.fillStyle = 'rgba(170,187,200,0.5)';
+  ctx.font      = '13px Courier New';
+  ctx.fillText('Press ENTER or click PLAY AGAIN', BASE_W / 2, BTN_Y + 62);
 
   ctx.textAlign = 'left';
 }
@@ -1011,7 +1301,13 @@ function handleCanvasClick(e) {
       startGame();
     }
   } else if (gameState === 'gameover') {
-    if (mx > BASE_W / 2 - 120 && mx < BASE_W / 2 + 120 && my > 310 && my < 366) {
+    // Subscribe CTA (matches drawGameOver SUB_Y / SUB_H)
+    if (mx > BASE_W / 2 - 210 && mx < BASE_W / 2 + 210 && my > 64 && my < 108) {
+      window.open('https://www.youtube.com/kellychameleons', '_blank');
+    }
+    // Play Again button: BTN_Y = PY + PH + 16 = 118 + 272 + 16 = 406
+    const BTN_Y = 406;
+    if (mx > BASE_W / 2 - 115 && mx < BASE_W / 2 + 115 && my > BTN_Y && my < BTN_Y + 50) {
       startGame();
     }
   }
@@ -1037,7 +1333,11 @@ function startGame() {
   particles    = [];
   nextObsDist    = 500;
   nextCoinDist   = 250;
-  copCarCooldown = 0;
+  copCarCooldown  = 0;
+  playerSubmitted = false;
+  playerIsTop10   = false;
+  playerNameEntry = '';
+  hideNameOverlay();
 
   Object.assign(player, {
     angle: 0, angVel: 0, wheelieTime: 0,
@@ -1342,7 +1642,15 @@ function doCrash() {
   burst(cx, cy, '#e94560', 22, 1.2);
   burst(cx, cy, '#fff',    10, 0.8);
   if (score > highScore) highScore = score;
-  setTimeout(() => { gameState = 'gameover'; }, 1800);
+
+  // Kick off leaderboard fetch while crash animation plays
+  const crashScore = score;
+  fetchLeaderboard();
+  setTimeout(() => {
+    gameState     = 'gameover';
+    playerIsTop10 = checkIsTop10(crashScore);
+    if (playerIsTop10 && !playerSubmitted) showNameOverlay();
+  }, 1800);
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
