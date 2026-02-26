@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wheelie Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+    }
+    #wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    canvas {
+      display: block;
+      border: 2px solid #e94560;
+      border-radius: 6px;
+      box-shadow: 0 0 40px rgba(233, 69, 96, 0.4), 0 0 80px rgba(0, 180, 216, 0.15);
+    }
+    #btn-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 20px;
+      pointer-events: none;
+    }
+    .game-btn {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+      font-size: 22px;
+      font-weight: bold;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      pointer-events: all;
+      transition: transform 0.08s, opacity 0.08s;
+      opacity: 0.88;
+    }
+    .game-btn:active { transform: scale(0.92); opacity: 1; }
+    #btn-pop { background: rgba(233, 69, 96, 0.85); }
+    #btn-hop { background: rgba(0, 180, 216, 0.85); }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <canvas id="c"></canvas>
+  <div id="btn-row">
+    <div class="game-btn" id="btn-pop">POP!</div>
+    <div class="game-btn" id="btn-hop">HOP!</div>
+  </div>
+</div>
+
+<script>
+// ─── Canvas Setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const BASE_W = 900;
+const BASE_H = 500;
+canvas.width = BASE_W;
+canvas.height = BASE_H;
+
+// Scale canvas for retina / viewport
+function resize() {
+  const maxW = Math.min(window.innerWidth - 8, 1100);
+  const maxH = window.innerHeight - 8;
+  const scale = Math.min(maxW / BASE_W, maxH / BASE_H);
+  canvas.style.width  = (BASE_W * scale) + 'px';
+  canvas.style.height = (BASE_H * scale) + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const GROUND_Y   = BASE_H - 90;
+const WHEEL_R    = 16;
+const BIKE_LEN   = 60;
+
+// Physics
+// angle < 0 = front wheel UP (wheelie)
+// angle = 0 = both wheels down (normal riding — default equilibrium)
+// angle > 0 = nose down (crash direction)
+const LEAN_BACK   = 0.009;    // force applied when holding wheelie key (drives angle negative)
+const SPRING_K    = 0.022;    // spring constant — restores angle to 0 when released
+const ANG_DAMP    = 0.88;     // angular damping
+const CRASH_WHEELIE = -1.22;  // angle too negative = fell back off the bike
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+const keys = {};
+let popHeld    = false;  // wheelie button held
+let hopTapped  = false;  // jump button tapped (consumed each frame)
+
+document.addEventListener('keydown', e => {
+  if (keys[e.code]) return; // ignore repeat
+  keys[e.code] = true;
+  if (['Space','ArrowUp','ArrowRight'].includes(e.code)) e.preventDefault();
+  if ((e.code === 'Space' || e.code === 'Enter') && gameState !== 'playing') { startGame(); return; }
+  // ↑ arrow = jump (HOP)
+  if (e.code === 'ArrowUp' && gameState === 'playing') hopTapped = true;
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// POP button — hold for wheelie
+const btnPop = document.getElementById('btn-pop');
+btnPop.addEventListener('touchstart', e => { popHeld = true;  e.preventDefault(); }, { passive: false });
+btnPop.addEventListener('touchend',   e => { popHeld = false; e.preventDefault(); }, { passive: false });
+btnPop.addEventListener('touchcancel',e => { popHeld = false; });
+btnPop.addEventListener('mousedown',  e => { popHeld = true;  e.preventDefault(); });
+btnPop.addEventListener('mouseup',    e => { popHeld = false; });
+btnPop.addEventListener('mouseleave', e => { popHeld = false; });
+
+// HOP button — tap to jump
+const btnHop = document.getElementById('btn-hop');
+btnHop.addEventListener('touchstart', e => { hopTapped = true; e.preventDefault(); }, { passive: false });
+btnHop.addEventListener('touchend',   e => { e.preventDefault(); }, { passive: false });
+btnHop.addEventListener('mousedown',  e => { hopTapped = true; e.preventDefault(); });
+
+// Tap canvas to navigate menus
+canvas.addEventListener('click', handleCanvasClick);
+canvas.addEventListener('touchstart', e => {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = BASE_W / r.width;
+  const scaleY = BASE_H / r.height;
+  const t = e.touches[0];
+  handleCanvasClick({ clientX: t.clientX, clientY: t.clientY, _rect: r, _sx: scaleX, _sy: scaleY });
+  e.preventDefault();
+}, { passive: false });
+
+function isWheelieHeld() {
+  // → arrow or POP button = wheelie
+  return keys['ArrowRight'] || popHeld;
+}
+
+// ─── Game State ───────────────────────────────────────────────────────────────
+let gameState  = 'menu'; // menu | playing | dead | gameover
+let score      = 0;
+let distance   = 0;
+let highScore  = 0;
+let gameTime   = 0;
+let speed      = 5;
+let scrollX    = 0;
+let jumpsMade  = 0;  // counts successful pothole/copcar clears — drives phase progression
+
+// ─── Player ───────────────────────────────────────────────────────────────────
+const player = {
+  x: 160,
+  y: GROUND_Y,
+  angle: 0,
+  angVel: 0,
+  wheelieTime: 0,
+  jumpY: 0,
+  jumpVel: 0,
+  onGround: true,
+  alive: true,
+  deathTimer: 0,
+};
+
+// ─── Scene objects ────────────────────────────────────────────────────────────
+let obstacles    = [];
+let collectibles = [];
+let particles    = [];
+let clouds       = [];
+let bgDecor      = [];
+let groundSegs   = []; // decorative ground stripe offsets
+
+let nextObsDist  = 500;
+let nextCoinDist = 250;
+
+// ─── Wheel spin accumulator ───────────────────────────────────────────────────
+let wheelSpin = 0;
+
+// ─── Assets ───────────────────────────────────────────────────────────────────
+const bgImg     = new Image();
+bgImg.src       = 'background.png';
+const spriteImg = new Image();
+spriteImg.src   = 'surron-sprite.png';
+const copCarImg   = new Image();
+copCarImg.src     = 'cop-car.png';
+let   copCarClean = null; // white-bg-removed version, built on load
+
+copCarImg.onload = function() {
+  // Strip the white background from the PNG so it blends with the dark canvas
+  const tmp  = document.createElement('canvas');
+  tmp.width  = copCarImg.naturalWidth;
+  tmp.height = copCarImg.naturalHeight;
+  const tc   = tmp.getContext('2d');
+  tc.drawImage(copCarImg, 0, 0);
+  const id   = tc.getImageData(0, 0, tmp.width, tmp.height);
+  const d    = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const minC = Math.min(d[i], d[i+1], d[i+2]);
+    if (minC > 235) {
+      // Smooth fade: pure white → transparent, 235 → opaque
+      d[i+3] = Math.round(Math.max(0, (255 - minC) / 20) * 255);
+    }
+  }
+  tc.putImageData(id, 0, 0);
+  copCarClean = tmp;
+};
+
+// ─── Initialize scene ─────────────────────────────────────────────────────────
+function initScene() {
+  clouds  = [];
+  bgDecor = [];
+  // clouds kept for update loop compatibility; background image handles all bg rendering
+}
+
+function newCloud(x) {
+  return {
+    x,
+    y: 30 + Math.random() * 140,
+    rx: 55 + Math.random() * 70,
+    ry: 22 + Math.random() * 22,
+    spd: 0.25 + Math.random() * 0.4,
+  };
+}
+
+function newDecor(x) {
+  const t = Math.random();
+  return {
+    x,
+    y: GROUND_Y,
+    type: t < 0.5 ? 'bush' : 'stone',
+    size: 14 + Math.random() * 20,
+    colorV: Math.random(),
+  };
+}
+
+// ─── Phase / difficulty progression ──────────────────────────────────────────
+// Phase advances every time the player successfully clears a pothole or cop car.
+// Phase 1 (0–5 clears)  : potholes + cones only, wide gaps
+// Phase 2 (6–14 clears) : cop cars introduced rarely (~10%)
+// Phase 3 (15–24 clears): cop cars more frequent (~25%), tighter gaps
+// Phase 4 (25+ clears)  : full difficulty, max cop car frequency (~40%)
+function getGamePhase() {
+  if (jumpsMade < 6)  return 1;
+  if (jumpsMade < 15) return 2;
+  if (jumpsMade < 25) return 3;
+  return 4;
+}
+
+// ─── Obstacle spawning ────────────────────────────────────────────────────────
+function spawnObstacle() {
+  const roll  = Math.random();
+  const phase = getGamePhase();
+  const x     = BASE_W + 80;
+
+  if (phase === 1) {
+    // Potholes and cones only — player learns to jump
+    if (roll < 0.55) {
+      obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 20, h: 18, passed: false });
+    } else {
+      obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
+    }
+  } else if (phase === 2) {
+    // Cop cars appear rarely (~10%)
+    if (roll < 0.45) {
+      obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 22, h: 18, passed: false });
+    } else if (roll < 0.90) {
+      obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
+    } else {
+      // Ramp 30px in front of cop car — lands player right at the roof
+      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
+      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+    }
+  } else if (phase === 3) {
+    // Cop cars more frequent (~25%)
+    if (roll < 0.38) {
+      obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 24, h: 18, passed: false });
+    } else if (roll < 0.75) {
+      obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
+    } else {
+      // Ramp 30px in front of cop car — lands player right at the roof
+      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
+      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+    }
+  } else {
+    // Phase 4 — full chaos (~40% cop cars)
+    if (roll < 0.30) {
+      obstacles.push({ type: 'pothole', x, y: GROUND_Y, w: 48 + Math.random() * 24, h: 18, passed: false });
+    } else if (roll < 0.60) {
+      obstacles.push({ type: 'cone', x, y: GROUND_Y, w: 18, h: 40, passed: false });
+    } else {
+      // Ramp 30px in front of cop car — lands player right at the roof
+      obstacles.push({ type: 'ramp',   x: x - 110, y: GROUND_Y, w: 80, h: 55, passed: false });
+      obstacles.push({ type: 'copcar', x, y: GROUND_Y - 240, w: 480, h: 240, passed: false, lightTimer: 0 });
+    }
+  }
+}
+
+function spawnCoin() {
+  const x = BASE_W + 40;
+  const y = GROUND_Y - 44 - Math.random() * 70;
+  collectibles.push({ x, y, r: 10, spin: Math.random() * Math.PI * 2, taken: false });
+}
+
+// ─── Particles ────────────────────────────────────────────────────────────────
+function burst(x, y, color, n = 10, str = 1) {
+  for (let i = 0; i < n; i++) {
+    const a  = Math.random() * Math.PI * 2;
+    const sp = (2 + Math.random() * 4) * str;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 2,
+      life: 1,
+      decay: 0.025 + Math.random() * 0.03,
+      r: 3 + Math.random() * 4,
+      color,
+    });
+  }
+}
+
+function tireSmoke(rx, ry) {
+  particles.push({
+    x: rx + (Math.random() - 0.5) * 6,
+    y: ry,
+    vx: -speed * 0.4 - Math.random() * 1.5,
+    vy: -Math.random() * 2.5,
+    life: 1,
+    decay: 0.045 + Math.random() * 0.04,
+    r: 5 + Math.random() * 6,
+    color: `hsl(${30 + Math.random() * 50}, 100%, ${60 + Math.random() * 20}%)`,
+  });
+}
+
+// ─── Round rect helper (cross-browser) ───────────────────────────────────────
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y,     x + w, y + r,     r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x,     y + h, x,     y + h - r, r);
+  ctx.lineTo(x,     y + r);
+  ctx.arcTo(x,     y,     x + r, y,         r);
+  ctx.closePath();
+}
+
+// ─── Drawing ──────────────────────────────────────────────────────────────────
+
+// Draws background.png as a scrolling parallax image, then overlays the dark road strip.
+function drawBackground() {
+  if (bgImg.complete && bgImg.naturalWidth > 0) {
+    const scale = BASE_H / bgImg.naturalHeight;
+    const rw    = bgImg.naturalWidth * scale; // rendered width at canvas height
+    const off   = (scrollX * 0.12) % rw;
+    // Draw two copies for seamless horizontal loop
+    ctx.drawImage(bgImg, -off,      0, rw, BASE_H);
+    ctx.drawImage(bgImg, rw - off,  0, rw, BASE_H);
+    // If canvas is wider than two copies, draw a third
+    if (rw * 2 < BASE_W + off) ctx.drawImage(bgImg, rw * 2 - off, 0, rw, BASE_H);
+  } else {
+    // Fallback warm sky while image loads
+    const g = ctx.createLinearGradient(0, 0, 0, BASE_H);
+    g.addColorStop(0,   '#2d1b5e');
+    g.addColorStop(0.4, '#9b2335');
+    g.addColorStop(0.7, '#e8522a');
+    g.addColorStop(1,   '#3d1a5e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, BASE_W, BASE_H);
+  }
+
+  // Dark road overlay at bottom — also helps the sprite's gray bg blend in
+  const roadGrad = ctx.createLinearGradient(0, GROUND_Y - 30, 0, BASE_H);
+  roadGrad.addColorStop(0,   'rgba(8, 4, 18, 0)');
+  roadGrad.addColorStop(0.35,'rgba(8, 4, 18, 0.82)');
+  roadGrad.addColorStop(1,   'rgba(4, 0, 10, 0.97)');
+  ctx.fillStyle = roadGrad;
+  ctx.fillRect(0, GROUND_Y - 30, BASE_W, BASE_H - GROUND_Y + 30);
+
+  // Ground surface line
+  ctx.fillStyle = '#5a3878';
+  ctx.fillRect(0, GROUND_Y, BASE_W, 3);
+
+  // Road dashes
+  const dashOff = scrollX % 80;
+  ctx.fillStyle = 'rgba(255, 200, 80, 0.22)';
+  for (let x = -dashOff; x < BASE_W; x += 80) {
+    ctx.fillRect(x, GROUND_Y + 6, 42, 3);
+  }
+}
+
+function drawObstacles() {
+  obstacles.forEach(obs => {
+    if (obs.type === 'pothole')       drawPothole(obs);
+    else if (obs.type === 'cone')     drawCone(obs);
+    else if (obs.type === 'ramp')     drawRamp(obs);
+    else if (obs.type === 'copcar')   drawCopCar(obs);
+  });
+}
+
+function drawPothole(obs) {
+  const cx = obs.x + obs.w / 2;
+
+  // Crack lines radiating from pit
+  ctx.strokeStyle = '#3a2050';
+  ctx.lineWidth = 1.5;
+  [[cx-4, GROUND_Y-4, cx-16, GROUND_Y-22],
+   [cx+7, GROUND_Y-3, cx+20, GROUND_Y-17],
+   [cx+1, GROUND_Y-5, cx-6,  GROUND_Y-30]].forEach(([x1,y1,x2,y2]) => {
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  });
+
+  // Dark pit
+  ctx.fillStyle = '#030008';
+  ctx.beginPath();
+  ctx.ellipse(cx, GROUND_Y, obs.w / 2, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rim highlight
+  ctx.strokeStyle = '#6030a0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, GROUND_Y - 2, obs.w / 2 - 2, 12, 0, Math.PI * 1.1, Math.PI * 1.9);
+  ctx.stroke();
+
+  // Pit depth gradient
+  const g = ctx.createRadialGradient(cx - 5, GROUND_Y - 4, 0, cx, GROUND_Y, obs.w / 2);
+  g.addColorStop(0, 'rgba(100,0,180,0.3)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(cx, GROUND_Y, obs.w / 2, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Warning label
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 13px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('⚠ JUMP!', cx, GROUND_Y - 24);
+  ctx.textAlign = 'left';
+}
+
+function drawCone(obs) {
+  const cx  = obs.x + obs.w / 2;
+  const top = obs.y - obs.h;
+  const bot = obs.y;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(cx, bot, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cone body
+  ctx.fillStyle = '#ff6600';
+  ctx.beginPath();
+  ctx.moveTo(cx, top);
+  ctx.lineTo(cx - 9, bot);
+  ctx.lineTo(cx + 9, bot);
+  ctx.closePath(); ctx.fill();
+
+  // White reflective stripe
+  const sy = top + (bot - top) * 0.48;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(cx, sy - 4);
+  ctx.lineTo(cx - 5, sy + 5);
+  ctx.lineTo(cx + 5, sy + 5);
+  ctx.closePath(); ctx.fill();
+
+  // Tip highlight
+  ctx.fillStyle = '#ffaa44';
+  ctx.beginPath();
+  ctx.arc(cx, top + 3, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Base plate
+  ctx.fillStyle = '#cc4400';
+  ctx.fillRect(cx - 11, bot - 5, 22, 5);
+}
+
+function drawRamp(obs) {
+  const { x, y, w, h } = obs;
+  const base = y;       // ground level
+  const peak = y - h;   // top of ramp (right side, closest to cop car)
+
+  // Shadow under ramp
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(x + w * 0.65, base + 5, w * 0.55, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ramp body — dark asphalt with orange tint
+  const rampGrad = ctx.createLinearGradient(x, base, x + w, peak);
+  rampGrad.addColorStop(0, '#443322');
+  rampGrad.addColorStop(1, '#885522');
+  ctx.fillStyle = rampGrad;
+  ctx.beginPath();
+  ctx.moveTo(x,     base);        // bottom-left (ground, far side)
+  ctx.lineTo(x + w, base);        // bottom-right (ground, cop-car side)
+  ctx.lineTo(x + w, peak);        // top-right = launch point
+  ctx.closePath();
+  ctx.fill();
+
+  // Edge outline
+  ctx.strokeStyle = '#FF9500';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, base);
+  ctx.lineTo(x + w, peak);
+  ctx.lineTo(x + w, base);
+  ctx.stroke();
+
+  // Diagonal warning stripes on slope face
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, base);
+  ctx.lineTo(x + w, peak);
+  ctx.lineTo(x + w, base);
+  ctx.closePath();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(255,200,0,0.30)';
+  ctx.lineWidth = 7;
+  for (let sx = x - h; sx < x + w + h; sx += 22) {
+    ctx.beginPath();
+    ctx.moveTo(sx,     base + 2);
+    ctx.lineTo(sx + h, peak - 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Launch-edge highlight (vertical face on right)
+  ctx.fillStyle = '#FF9500';
+  ctx.fillRect(x + w - 3, peak, 3, base - peak);
+
+  // Upward arrow at peak
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('↑', x + w, peak - 10);
+  ctx.textAlign = 'left';
+}
+
+function drawCopCar(obs) {
+  const { x, y, w, h } = obs;
+  obs.lightTimer = (obs.lightTimer || 0) + 1;
+  const flash = Math.floor(obs.lightTimer / 7) % 2;
+
+  // Scale to fit collision box WIDTH, maintain aspect ratio, bottom-align to ground
+  const imgSrc = copCarClean || (copCarImg.complete && copCarImg.naturalWidth > 0 ? copCarImg : null);
+  let drawX = x, drawY = y, drawW = w, drawH = h;
+  if (imgSrc) {
+    const aspect = copCarImg.naturalWidth / copCarImg.naturalHeight;
+    drawW = w;                          // fill the full collision box width
+    drawH = Math.round(w / aspect);     // height from aspect ratio
+    drawX = x;
+    drawY = GROUND_Y - drawH + Math.round(drawH * 0.06); // slight push so wheels touch road
+  }
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, GROUND_Y + 5, w / 2 + 12, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sprite (or fallback solid block)
+  if (imgSrc) {
+    ctx.drawImage(imgSrc, drawX, drawY, drawW, drawH);
+  } else {
+    ctx.fillStyle = '#1a1a2e';
+    roundRect(x, y, w, h, 4); ctx.fill();
+    ctx.fillStyle = '#dde0ee';
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('POLICE', x + w / 2, y + h * 0.6);
+  }
+
+  // Flashing light glow overlay — sits on top of sprite at the lightbar position
+  const lightY = drawY + drawH * 0.08;
+  const lightXL = drawX + drawW * 0.32;
+  const lightXR = drawX + drawW * 0.68;
+
+  // Red light
+  ctx.fillStyle = flash === 0 ? 'rgba(255,30,30,0.95)' : 'rgba(255,50,50,0.18)';
+  ctx.beginPath(); ctx.arc(lightXL, lightY, 5, 0, Math.PI * 2); ctx.fill();
+  if (flash === 0) {
+    ctx.fillStyle = 'rgba(255,0,0,0.20)';
+    ctx.beginPath(); ctx.ellipse(lightXL, lightY, 26, 26, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Blue light
+  ctx.fillStyle = flash === 1 ? 'rgba(30,64,255,0.95)' : 'rgba(50,80,255,0.18)';
+  ctx.beginPath(); ctx.arc(lightXR, lightY, 5, 0, Math.PI * 2); ctx.fill();
+  if (flash === 1) {
+    ctx.fillStyle = 'rgba(20,50,255,0.20)';
+    ctx.beginPath(); ctx.ellipse(lightXR, lightY, 26, 26, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Warning label above
+  ctx.fillStyle = flash === 0 ? '#ff3333' : '#ff8888';
+  ctx.font = 'bold 13px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('⚠ JUMP!', x + w / 2, drawY - 8);
+  ctx.textAlign = 'left';
+}
+
+function drawCollectibles() {
+  collectibles.forEach(c => {
+    if (c.taken) return;
+    c.spin += 0.04;
+    const pulse = Math.sin(c.spin * 2) * 2;
+
+    ctx.save();
+    ctx.translate(c.x, c.y + pulse);
+
+    // Glow
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, c.r * 2.5);
+    glow.addColorStop(0,   'rgba(255,215,0,0.6)');
+    glow.addColorStop(1,   'rgba(255,215,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, c.r * 2.5, 0, Math.PI * 2); ctx.fill();
+
+    // Star
+    ctx.fillStyle   = '#FFD700';
+    ctx.strokeStyle = '#e6ac00';
+    ctx.lineWidth   = 1.5;
+    drawStarPath(0, 0, 5, c.r, c.r * 0.4);
+    ctx.fill(); ctx.stroke();
+
+    ctx.restore();
+  });
+}
+
+function drawStarPath(cx, cy, pts, outer, inner) {
+  let angle = -Math.PI / 2;
+  const step = Math.PI / pts;
+  ctx.beginPath();
+  for (let i = 0; i < pts * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    ctx.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+    angle += step;
+  }
+  ctx.closePath();
+}
+
+function drawBike() {
+  const px  = player.x;
+  const py  = player.y + player.jumpY;
+  const ang = player.angle;
+
+  // Ground shadow — shrinks as wheelie angle increases
+  const shadowW = 58 - Math.abs(ang) * 28;
+  if (shadowW > 4) {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(px + 8, py + 5, shadowW, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+    // Render size — preserve aspect ratio of source image
+    const SW = 185;
+    const SH = Math.round(SW * spriteImg.naturalHeight / spriteImg.naturalWidth);
+
+    // Where the rear tyre contacts the ground inside the sprite image.
+    // Measured as fractions: rear wheel ~20% from left edge, ~86% from top.
+    const rearFX = 0.20;
+    const rearFY = 0.86;
+
+    // Pivot = rear wheel contact point on the ground
+    const pivotX = px - 28;
+    const pivotY = py;
+
+    ctx.save();
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate(ang); // negative = wheelie (front wheel lifts)
+    ctx.drawImage(spriteImg, -SW * rearFX, -SH * rearFY, SW, SH);
+    ctx.restore();
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.1, p.r * p.life), 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // Score (top left)
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Score: ${Math.floor(score)}`, 18, 34);
+
+  ctx.font = '15px Courier New';
+  ctx.fillStyle = '#8ec8e8';
+  ctx.fillText(`${Math.floor(distance)} m`, 18, 54);
+
+  // High score (top right)
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#FFD700';
+  ctx.font = '15px Courier New';
+  ctx.fillText(`Best: ${Math.floor(highScore)}`, BASE_W - 18, 34);
+
+  ctx.fillStyle = '#8ec8e8';
+  ctx.fillText(`${(speed * 10).toFixed(0)} km/h`, BASE_W - 18, 54);
+
+  ctx.textAlign = 'left';
+
+  // Wheelie meter
+  const wPct = Math.min(player.wheelieTime / 200, 1);
+  if (player.angle < -0.15 || player.wheelieTime > 0) {
+    const mX = BASE_W / 2 - 90;
+    const mY = 16;
+    const mW = 180;
+    const mH = 18;
+
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('WHEELIE METER', BASE_W / 2, mY - 3);
+
+    // Background
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    roundRect(mX - 2, mY, mW + 4, mH + 4, 4); ctx.fill();
+
+    // Fill
+    const barColor = wPct < 0.5 ? '#00e676'
+                   : wPct < 0.8 ? '#FFCA28'
+                   :               '#f44336';
+    ctx.fillStyle = barColor;
+    if (wPct > 0) {
+      roundRect(mX, mY + 2, mW * wPct, mH, 3); ctx.fill();
+    }
+
+    // Border
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1.5;
+    roundRect(mX, mY + 2, mW, mH, 3); ctx.stroke();
+
+    // Danger zone marker (80%)
+    ctx.strokeStyle = '#f44336';
+    ctx.lineWidth   = 2;
+    const dangerX = mX + mW * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(dangerX, mY);
+    ctx.lineTo(dangerX, mY + mH + 6);
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+
+    // Combo text
+    if (player.angle < -0.25) {
+      const mult = 1 + Math.floor(wPct * 4);
+      if (mult > 1) {
+        const flicker = Math.sin(gameTime * 0.15) > 0;
+        if (flicker || mult >= 3) {
+          ctx.fillStyle   = mult >= 4 ? '#ff4444' : '#FFD700';
+          ctx.font        = `bold ${18 + mult * 3}px Courier New`;
+          ctx.textAlign   = 'center';
+          ctx.shadowColor = ctx.fillStyle;
+          ctx.shadowBlur  = 12;
+          ctx.fillText(`${mult}x COMBO!`, BASE_W / 2, mY + mH + 32);
+          ctx.shadowBlur  = 0;
+          ctx.textAlign   = 'left';
+        }
+      }
+    }
+  }
+}
+
+function drawMenu() {
+  ctx.fillStyle = 'rgba(6,7,27,0.82)';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  ctx.textAlign = 'center';
+  ctx.shadowBlur = 30;
+
+  // Title
+  ctx.shadowColor = '#e94560';
+  ctx.fillStyle   = '#e94560';
+  ctx.font        = 'bold 72px Courier New';
+  ctx.fillText('WHEELIE', BASE_W / 2, 170);
+
+  ctx.shadowColor = '#00b4d8';
+  ctx.fillStyle   = '#00b4d8';
+  ctx.font        = 'bold 72px Courier New';
+  ctx.fillText('RUNNER', BASE_W / 2, 248);
+  ctx.shadowBlur  = 0;
+
+  ctx.fillStyle = '#aabbcc';
+  ctx.font      = '19px Courier New';
+  ctx.fillText('→ / POP! = wheelie (hold)   ↑ / HOP! = jump', BASE_W / 2, 295);
+  ctx.fillText('Avoid rocks • Collect stars • Don\'t fall!', BASE_W / 2, 322);
+
+  // Button
+  ctx.fillStyle = '#e94560';
+  roundRect(BASE_W / 2 - 110, 348, 220, 56, 12); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 28px Courier New';
+  ctx.fillText('▶  PLAY', BASE_W / 2, 384);
+
+  // Controls hint
+  ctx.fillStyle = 'rgba(170,187,200,0.7)';
+  ctx.font      = '14px Courier New';
+  ctx.fillText('SPACE / ENTER or click PLAY to start', BASE_W / 2, 428);
+
+  if (highScore > 0) {
+    ctx.fillStyle = '#FFD700';
+    ctx.font      = '16px Courier New';
+    ctx.fillText(`Best Score: ${Math.floor(highScore)}`, BASE_W / 2, 460);
+  }
+
+  ctx.textAlign = 'left';
+}
+
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(6,7,27,0.88)';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  ctx.textAlign   = 'center';
+  ctx.shadowBlur  = 24;
+  ctx.shadowColor = '#e94560';
+  ctx.fillStyle   = '#e94560';
+  ctx.font        = 'bold 58px Courier New';
+  ctx.fillText('CRASHED!', BASE_W / 2, 175);
+  ctx.shadowBlur  = 0;
+
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 28px Courier New';
+  ctx.fillText(`Score: ${Math.floor(score)}`, BASE_W / 2, 232);
+
+  if (score >= highScore && highScore > 0) {
+    ctx.fillStyle   = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur  = 16;
+    ctx.font        = 'bold 24px Courier New';
+    ctx.fillText('✦ NEW HIGH SCORE! ✦', BASE_W / 2, 272);
+    ctx.shadowBlur  = 0;
+  } else if (highScore > 0) {
+    ctx.fillStyle = '#8ec8e8';
+    ctx.font      = '20px Courier New';
+    ctx.fillText(`Best: ${Math.floor(highScore)}`, BASE_W / 2, 272);
+  }
+
+  // Retry button
+  ctx.fillStyle = '#00b4d8';
+  roundRect(BASE_W / 2 - 120, 310, 240, 56, 12); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 26px Courier New';
+  ctx.fillText('▶  PLAY AGAIN', BASE_W / 2, 346);
+
+  ctx.fillStyle = 'rgba(170,187,200,0.65)';
+  ctx.font      = '14px Courier New';
+  ctx.fillText('Click PLAY AGAIN or press ENTER to retry', BASE_W / 2, 392);
+
+  // Tips
+  const tips = [
+    'TIP: JUMP over potholes — wheelie won\'t save you!',
+    'TIP: Traffic cones? Just ride through \'em.',
+    'TIP: Cop car = big jump. +100 points if you clear it!',
+    'TIP: Longer wheelies = score multiplier. Don\'t fall back!',
+    'TIP: Stars are worth +50 points each!',
+  ];
+  ctx.fillStyle = '#556677';
+  ctx.font      = '15px Courier New';
+  ctx.fillText(tips[Math.floor(score / 50) % tips.length], BASE_W / 2, 440);
+
+  ctx.textAlign = 'left';
+}
+
+// ─── Click handler ────────────────────────────────────────────────────────────
+function handleCanvasClick(e) {
+  const rect = e._rect || canvas.getBoundingClientRect();
+  const sx   = e._sx   || (BASE_W / rect.width);
+  const sy   = e._sy   || (BASE_H / rect.height);
+  const mx = (e.clientX - rect.left) * sx;
+  const my = (e.clientY - rect.top)  * sy;
+
+  if (gameState === 'menu') {
+    if (mx > BASE_W / 2 - 110 && mx < BASE_W / 2 + 110 && my > 348 && my < 404) {
+      startGame();
+    }
+  } else if (gameState === 'gameover') {
+    if (mx > BASE_W / 2 - 120 && mx < BASE_W / 2 + 120 && my > 310 && my < 366) {
+      startGame();
+    }
+  }
+}
+
+// ─── Game start / reset ───────────────────────────────────────────────────────
+function startGame() {
+  score        = 0;
+  distance     = 0;
+  speed        = 5;
+  gameTime     = 0;
+  scrollX      = 0;
+  wheelSpin    = 0;
+  jumpsMade    = 0;
+  obstacles    = [];
+  collectibles = [];
+  particles    = [];
+  nextObsDist  = 500;
+  nextCoinDist = 250;
+
+  Object.assign(player, {
+    angle: 0, angVel: 0, wheelieTime: 0,
+    jumpY: 0, jumpVel: 0, onGround: true,
+    alive: true, deathTimer: 0,
+  });
+
+  initScene();
+  gameState = 'playing';
+}
+
+// ─── Update ───────────────────────────────────────────────────────────────────
+function update() {
+  if (gameState !== 'playing') return;
+
+  gameTime++;
+  speed   = 5 + Math.min(gameTime / 1800, 7);
+  scrollX += speed;
+
+  // Wheel spin
+  wheelSpin -= speed * 0.07;
+
+  // Distance & score
+  distance += speed / 60;
+  const wheelieMult = player.angle < -0.25
+    ? 1 + Math.min(player.wheelieTime / 200, 1) * 3
+    : 1;
+  score += (speed / 12) * wheelieMult;
+
+  // background scrolling is handled by scrollX in drawBackground()
+
+  // ── Obstacle spawning (phase-aware gaps) ──
+  nextObsDist -= speed;
+  if (nextObsDist <= 0) {
+    spawnObstacle();
+    const ph = getGamePhase();
+    // Phase 1: wide, forgiving gaps; Phase 4: tight, fast
+    const minGap  = ph === 1 ? 420 : ph === 2 ? 340 : ph === 3 ? 270 : 210;
+    const randGap = ph === 1 ? 460 : ph === 2 ? 360 : ph === 3 ? 280 : 220;
+    nextObsDist = minGap + Math.random() * randGap;
+  }
+
+  // ── Coin spawning ──
+  nextCoinDist -= speed;
+  if (nextCoinDist <= 0) {
+    spawnCoin();
+    nextCoinDist = 180 + Math.random() * 260;
+  }
+
+  // ── Move obstacles & coins ──
+  obstacles    = obstacles.filter(o => o.x > -200 && !o.passed);
+  collectibles = collectibles.filter(c => c.x > -30 && !c.taken);
+  obstacles.forEach(o => { o.x -= speed; });
+  collectibles.forEach(c => { c.x -= speed; });
+
+  // ── Player physics ──
+  if (isWheelieHeld()) {
+    // Front wheel lifts: drive angle negative
+    player.angVel -= LEAN_BACK * (1 + Math.abs(player.angle) * 0.3);
+  } else {
+    // Spring restores to angle=0 — bike just rides without crashing
+    player.angVel -= player.angle * SPRING_K;
+  }
+  player.angVel  *= ANG_DAMP;
+  player.angle   += player.angVel;
+  // Clamp: never go much past nose-down (small positive) or too far wheelie (negative)
+  player.angle    = Math.max(CRASH_WHEELIE + 0.08, Math.min(player.angle, 0.35));
+
+  // Wheelie counter (angle negative = front wheel up)
+  if (player.angle < -0.25) {
+    player.wheelieTime++;
+    if (gameTime % 2 === 0) {
+      const rearScreenX = player.x - BIKE_LEN / 2 + 4;
+      tireSmoke(rearScreenX, player.y + player.jumpY);
+    }
+  } else {
+    player.wheelieTime = Math.max(0, player.wheelieTime - 2);
+  }
+
+  // ── Manual jump (HOP button) ──
+  if (hopTapped) {
+    hopTapped = false;
+    if (player.onGround && player.jumpY === 0) {
+      player.jumpVel  = -12;
+      player.jumpY    = -1;
+      player.onGround = false;
+      burst(player.x, player.y, '#00b4d8', 6, 0.8);
+    }
+  }
+
+  // ── Jump physics ──
+  if (player.jumpY < 0 || player.jumpVel !== 0) {
+    player.jumpVel += 0.55;
+    player.jumpY   += player.jumpVel;
+    if (player.jumpY >= 0) {
+      player.jumpY   = 0;
+      player.jumpVel = 0;
+      player.onGround = true;
+    }
+  }
+
+  // ── Crash checks ──
+  if (player.angle <= CRASH_WHEELIE) { doCrash(); return; } // fell back off the bike
+
+  // ── Collision detection ──
+  const px     = player.x;
+  const frontX = px + BIKE_LEN / 2;
+  const rearX  = px - BIKE_LEN / 2;
+  // Meaningfully in the air — jumpY is negative when airborne
+  const inAir  = player.jumpY < -5;
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const obs = obstacles[i];
+    if (obs.passed) continue;
+
+    const overlapping  = frontX > obs.x && rearX < obs.x + obs.w;
+    const justCleared  = rearX  >= obs.x + obs.w;
+
+    if (obs.type === 'pothole') {
+      // Must be in the air to cross — wheelie alone doesn't help
+      if (overlapping && !inAir) { doCrash(); return; }
+      if (justCleared) {
+        obs.passed = true;
+        score += 30;
+        jumpsMade++;
+        burst(obs.x + obs.w / 2, GROUND_Y - 8, '#00e676', 6);
+      }
+
+    } else if (obs.type === 'cone') {
+      // No crash — just roll through
+      if (justCleared) obs.passed = true;
+
+    } else if (obs.type === 'ramp') {
+      // Auto-launch player when they hit the ramp on the ground
+      if (overlapping && player.onGround && player.jumpY === 0) {
+        player.jumpVel  = -13;
+        player.jumpY    = -1;
+        player.onGround = false;
+        burst(player.x, player.y, '#FF9500', 8, 0.9);
+      }
+      if (justCleared) obs.passed = true;
+
+    } else if (obs.type === 'copcar') {
+      // Must be well airborne (>55px off ground) to clear the bigger car
+      if (overlapping && player.jumpY > -55) { doCrash(); return; }
+      if (justCleared) {
+        obs.passed = true;
+        score += 100;
+        jumpsMade++;
+        burst(obs.x + obs.w / 2, obs.y, '#FFD700', 14);
+      }
+    }
+  }
+
+  // ── Coin collection ──
+  collectibles.forEach(c => {
+    const dx = px - c.x;
+    const dy = (player.y + player.jumpY - 30) - c.y;
+    if (Math.hypot(dx, dy) < 36) {
+      c.taken = true;
+      score  += 50;
+      burst(c.x, c.y, '#FFD700', 12);
+    }
+  });
+
+  // ── Particles ──
+  particles.forEach(p => {
+    p.x    += p.vx;
+    p.y    += p.vy;
+    p.vy   += 0.12;
+    p.life -= p.decay;
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  // ── High score ──
+  if (score > highScore) highScore = score;
+}
+
+function doCrash() {
+  if (!player.alive) return;
+  player.alive = false;
+  burst(player.x, player.y + player.jumpY, '#e94560', 22, 1.2);
+  burst(player.x, player.y + player.jumpY, '#fff',    10, 0.8);
+  if (score > highScore) highScore = score;
+  setTimeout(() => { gameState = 'gameover'; }, 900);
+}
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, BASE_W, BASE_H);
+
+  drawBackground();
+  drawObstacles();
+  drawCollectibles();
+  drawParticles();
+  if (player.alive) drawBike();
+
+  if (gameState === 'playing')  drawHUD();
+  if (gameState === 'menu')     drawMenu();
+  if (gameState === 'gameover') drawGameOver();
+}
+
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+initScene();
+loop();
+</script>
+</body>
+</html>
