@@ -909,14 +909,14 @@ function newDecor(x) {
 
 // ─── Phase / difficulty progression ──────────────────────────────────────────
 // Phase advances every time the player successfully clears a pothole or cop car.
-// Phase 1 (0–5 clears)  : potholes + cones only, wide gaps
-// Phase 2 (6–14 clears) : cop cars introduced rarely (~10%)
-// Phase 3 (15–24 clears): cop cars more frequent (~25%), tighter gaps
-// Phase 4 (25+ clears)  : full difficulty, max cop car frequency (~40%)
+// Phase 1 (0–3 clears)  : potholes + cones only, wide gaps
+// Phase 2 (4–11 clears) : cop cars introduced rarely (~10%)
+// Phase 3 (12–20 clears): cop cars more frequent (~25%), tighter gaps
+// Phase 4 (21+ clears)  : full difficulty, max cop car frequency (~40%)
 function getGamePhase() {
-  if (jumpsMade < 6)  return 1;
-  if (jumpsMade < 15) return 2;
-  if (jumpsMade < 25) return 3;
+  if (jumpsMade < 4)  return 1;
+  if (jumpsMade < 12) return 2;
+  if (jumpsMade < 21) return 3;
   return 4;
 }
 
@@ -1719,13 +1719,13 @@ function update() {
   // ── High helicopter only — punishes double-jumpers ──
   nextHighHeliDist -= speed;
   if (nextHighHeliDist <= 0) {
-    // Only spawn if no obstacle is within 380px of the right edge
-    const tooClose = obstacles.some(o => o.x > BASE_W - 380);
-    if (!tooClose) {
+    // Only hold off if a cop car is too close — fine to spawn near cones/potholes
+    const copCarNear = obstacles.some(o => o.type === 'copcar' && o.x > BASE_W - 520);
+    if (!copCarNear) {
       spawnHighHelicopter();
       nextHighHeliDist = 900 + Math.random() * 900;
     } else {
-      nextHighHeliDist = 100; // retry soon
+      nextHighHeliDist = 150; // retry soon
     }
   }
 
