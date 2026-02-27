@@ -474,6 +474,7 @@
 </div>
 
 <script>
+(function () {
 // ─── Canvas Setup ────────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -2013,6 +2014,7 @@ document.getElementById('game-footer').textContent =
   `v${GAME_VERSION}  ·  © ${new Date().getFullYear()} Kelly Chameleon. All rights reserved.`;
 initScene();
 loop();
+})();
 </script>
 </body>
 </html>
