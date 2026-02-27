@@ -367,6 +367,7 @@
   <!-- Firebase v9 compat CDN -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
 </head>
 <body>
 <div id="wrapper">
@@ -719,15 +720,13 @@ async function fetchLeaderboard() {
 }
 
 async function submitScore(name, scoreVal) {
-  if (!db) return;
   try {
-    await db.collection('leaderboard').add({
-      name:      name.trim(),
-      score:     Math.floor(scoreVal),
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    // Scores are written via Cloud Function — direct Firestore writes are blocked by security rules
+    const fn = firebase.functions().httpsCallable('submitScore');
+    const result = await fn({ name: name.trim(), score: Math.floor(scoreVal) });
+    console.log('Score submitted OK:', result);
   } catch (e) {
-    console.warn('Score submit failed:', e);
+    console.error('Score submit failed:', e.code, e.message, e.details);
   }
 }
 
