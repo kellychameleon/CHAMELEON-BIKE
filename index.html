@@ -362,6 +362,14 @@
     }
     #btn-yes-forfeit { background: #e94560; color: #fff; }
     #btn-go-back     { background: #1a1a3a; color: #aabbcc; border: 1px solid #334; }
+    #game-footer {
+      text-align: center;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+      padding: 6px 0 10px;
+      letter-spacing: 0.04em;
+    }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
   <!-- Firebase v9 compat CDN -->
@@ -395,6 +403,7 @@
     <div class="game-btn" id="btn-pop">POP!</div>
     <div class="game-btn" id="btn-hop">HOP!</div>
   </div>
+  <div id="game-footer"></div>
 </div>
 
 <!-- Game Over overlay — full-screen HTML (readable on mobile) -->
@@ -469,6 +478,7 @@
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
+const GAME_VERSION = '1.1.0';
 const BASE_W = 540;
 const BASE_H = 700;
 canvas.width = BASE_W;
@@ -826,7 +836,6 @@ let obstacles    = [];
 let collectibles = [];
 let particles    = [];
 let clouds       = [];
-let nextHeliDist     = 1400; // low helicopter — spawns phase 2+
 let nextHighHeliDist = 900;  // high helicopter — spawns from phase 1 to punish double-jumpers
 let bgDecor      = [];
 let groundSegs   = []; // decorative ground stripe offsets
@@ -1170,14 +1179,22 @@ function drawPothole(obs) {
 
 function drawCone(obs) {
   const cx  = obs.x + obs.w / 2;
-  const top = obs.y - obs.h;
-  const bot = obs.y;
+  const drawY = obs.spiraling ? obs.drawY : obs.y;
+  const top = drawY - obs.h;
+  const bot = drawY;
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  ctx.beginPath();
-  ctx.ellipse(cx, bot, 10, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
+  if (obs.spiraling) {
+    ctx.save();
+    ctx.translate(cx, bot - obs.h / 2);
+    ctx.rotate(obs.rot);
+    ctx.translate(-cx, -(bot - obs.h / 2));
+  } else {
+    // Shadow (only when grounded)
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(cx, bot, 10, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Cone body
   ctx.fillStyle = '#ff6600';
@@ -1205,6 +1222,8 @@ function drawCone(obs) {
   // Base plate
   ctx.fillStyle = '#cc4400';
   ctx.fillRect(cx - 11, bot - 5, 22, 5);
+
+  if (obs.spiraling) ctx.restore();
 }
 
 function drawRamp(obs) {
@@ -1613,7 +1632,6 @@ function startGame() {
   lastHopTime     = 0;
   popTapped       = false;
   popHoldFrames   = 0;
-  nextHeliDist     = 1400;
   nextHighHeliDist = 900;
   obstacles    = [];
   collectibles = [];
@@ -1698,24 +1716,30 @@ function update() {
     nextCoinDist = 110 + Math.random() * 160;
   }
 
-  // ── Low helicopter (phase 2+) ──
-  nextHeliDist -= speed;
-  if (nextHeliDist <= 0 && getGamePhase() >= 2) {
-    spawnHelicopter();
-    nextHeliDist = 900 + Math.random() * 1100;
-  }
-
-  // ── High helicopter — punishes double-jumpers, spawns from phase 1 ──
+  // ── High helicopter only — punishes double-jumpers ──
   nextHighHeliDist -= speed;
   if (nextHighHeliDist <= 0) {
-    spawnHighHelicopter();
-    nextHighHeliDist = 800 + Math.random() * 900;
+    // Only spawn if no obstacle is within 380px of the right edge
+    const tooClose = obstacles.some(o => o.x > BASE_W - 380);
+    if (!tooClose) {
+      spawnHighHelicopter();
+      nextHighHeliDist = 900 + Math.random() * 900;
+    } else {
+      nextHighHeliDist = 100; // retry soon
+    }
   }
 
   // ── Move obstacles & coins ──
   obstacles    = obstacles.filter(o => o.x > -(o.w || 200) - 100 && !o.passed);
   collectibles = collectibles.filter(c => c.x > -30 && !c.taken);
-  obstacles.forEach(o => { o.x -= speed; });
+  obstacles.forEach(o => {
+    o.x -= speed;
+    if (o.spiraling) {
+      o.drawY  += o.vy;
+      o.vy     += 0.55;   // gravity pulls it down
+      o.rot    += o.rotVel;
+    }
+  });
   collectibles.forEach(c => { c.x -= speed; });
 
   // ── Player physics — tap-based wheelie ──
@@ -1828,7 +1852,9 @@ function update() {
 
     if (obs.type === 'pothole') {
       // Must be in the air to cross — wheelie alone doesn't help
-      if (overlapping && !inAir) { doCrash(); return; }
+      // Inset left edge 14px so collision matches the visual ellipse center
+      const potholeHit = frontX > obs.x + 14 && rearX < obs.x + obs.w;
+      if (potholeHit && !inAir) { doCrash(); return; }
       if (justCleared) {
         obs.passed = true;
         score += 30;
@@ -1837,8 +1863,19 @@ function update() {
       }
 
     } else if (obs.type === 'cone') {
-      // No crash — just roll through
-      if (justCleared) obs.passed = true;
+      // No crash — knock it away for bonus points
+      if (overlapping && !obs.spiraling) {
+        obs.spiraling = true;
+        obs.drawY     = obs.y;
+        obs.vy        = -9;
+        obs.rot       = 0;
+        obs.rotVel    = 0.28 + Math.random() * 0.18;
+        score += 50;
+        burst(obs.x + obs.w / 2, obs.y - obs.h / 2, '#ff6600', 10, 1.1);
+        burst(obs.x + obs.w / 2, obs.y - obs.h / 2, '#FFD700',  6, 0.8);
+      }
+      if (obs.spiraling && obs.drawY > BASE_H + 60) obs.passed = true;
+      if (!obs.spiraling && justCleared) obs.passed = true;
 
     } else if (obs.type === 'ramp') {
       // Auto-launch player when they hit the ramp on the ground
@@ -1972,6 +2009,8 @@ function loop() {
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+document.getElementById('game-footer').textContent =
+  `v${GAME_VERSION}  ·  © ${new Date().getFullYear()} Kelly Chameleon. All rights reserved.`;
 initScene();
 loop();
 </script>
